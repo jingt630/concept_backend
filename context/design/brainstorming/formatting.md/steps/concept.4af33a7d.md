@@ -1,8 +1,14 @@
+---
+timestamp: 'Thu Oct 16 2025 18:12:42 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251016_181242.d3a7a774.md]]'
+content_id: 4af33a7d7cea4a66152a304f266e36330f36347df0bbcacb04c0f2500d531ea6
+---
+
 # concept: TextExtraction
 
-* **concept**: TextExtraction 
+* **concept**: TextExtraction \[MediaFile, ExtractionResult]
 * **purpose**: Extract text from uploaded media for the AI to learn and translate.
-* **principle**: Given a image from imagePath, the AI would run extraction to recognize text within the media, and produce a transcript with metadata for the image. One image can have many `ExtractionResult`s.
+* **principle**: Given a `MediaFile`, the AI would run extraction to recognize text within the media, and produce a transcript with metadata for the `MediaFile`. One `MediaFile` can have many `ExtractionResult`s.
 * **state**:
   * A set of `ExtractionResults` with
     * `imagePath` of type `FilePath`
