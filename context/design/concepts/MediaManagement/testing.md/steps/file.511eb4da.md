@@ -1,0 +1,590 @@
+---
+timestamp: 'Thu Oct 16 2025 20:24:01 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251016_202401.1b4c1321.md]]'
+content_id: 511eb4da1f07a324f788fbf757cf82f779f82be72a22af4811b973b681839870
+---
+
+# file: src/MediaManagement/MediaManagementConcept.test.ts
+
+```typescript
+import {
+  assertEquals,
+  assertRejects,
+} from "jsr:@std/assert";
+import { testDb } from "@utils/database.ts";
+import MediaManagementConcept from "./MediaManagementConcept.ts";
+import { ID } from "@utils/types.ts";
+
+const USER_A: ID = "user:Alice" as ID;
+const USER_B: ID = "user:Bob" as ID;
+const MEDIA_ID_1: ID = "media:1" as ID;
+const MEDIA_ID_2: ID = "media:2" as ID;
+const MEDIA_ID_3: ID = "media:3" as ID;
+
+Deno.test("MediaManagementConcept - uploadMedia", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  await t.step("should upload a media item successfully", async () => {
+    const result = await mediaManagement.uploadMedia({
+      owner: USER_A,
+      url: "http://example.com/media1.jpg",
+      fileName: "media1.jpg",
+      mimeType: "image/jpeg",
+    });
+
+    assertEquals(result.mediaItem !== undefined, true);
+    const mediaItem = await mediaManagement.mediaItems.findOne({
+      _id: result.mediaItem,
+    });
+    assertEquals(mediaItem?.owner, USER_A);
+    assertEquals(mediaItem?.url, "http://example.com/media1.jpg");
+    assertEquals(mediaItem?.fileName, "media1.jpg");
+    assertEquals(mediaItem?.mimeType, "image/jpeg");
+    assertEquals(mediaItem?.accessControl, "private"); // Default should be private
+  });
+
+  await t.step("should return an error for missing fields", async () => {
+    const result = await mediaManagement.uploadMedia({
+      owner: USER_A,
+      url: "", // Missing url
+      fileName: "media2.png",
+      mimeType: "image/png",
+    });
+    assertEquals(result.error, "Missing required fields for media upload.");
+  });
+
+  await client.close();
+});
+
+Deno.test("MediaManagementConcept - setMediaAccess", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  // Setup: Upload a media item
+  const uploadResult = await mediaManagement.uploadMedia({
+    owner: USER_A,
+    url: "http://example.com/private.mp4",
+    fileName: "private.mp4",
+    mimeType: "video/mp4",
+  });
+  const mediaItemId = uploadResult.mediaItem;
+
+  await t.step("should set media to public", async () => {
+    const result = await mediaManagement.setMediaAccess({
+      mediaItem: mediaItemId,
+      access: "public",
+    });
+    assertEquals(result, {}); // Empty object indicates success
+
+    const mediaItem = await mediaManagement.mediaItems.findOne({
+      _id: mediaItemId,
+    });
+    assertEquals(mediaItem?.accessControl, "public");
+  });
+
+  await t.step("should set media back to private", async () => {
+    const result = await mediaManagement.setMediaAccess({
+      mediaItem: mediaItemId,
+      access: "private",
+    });
+    assertEquals(result, {});
+
+    const mediaItem = await mediaManagement.mediaItems.findOne({
+      _id: mediaItemId,
+    });
+    assertEquals(mediaItem?.accessControl, "private");
+  });
+
+  await t.step("should return an error for invalid media item ID", async () => {
+    const result = await mediaManagement.setMediaAccess({
+      mediaItem: "nonexistent:id" as ID,
+      access: "public",
+    });
+    assertEquals(result.error, "Media item with ID nonexistent:id not found.");
+  });
+
+  await t.step("should return an error for invalid access type", async () => {
+    // Type assertion needed as TS would prevent this directly
+    const result = await mediaManagement.setMediaAccess({
+      mediaItem: mediaItemId,
+      access: "invalid" as any,
+    });
+    assertEquals(result.error, "Invalid parameters for setting media access.");
+  });
+
+  await client.close();
+});
+
+Deno.test("MediaManagementConcept - grantMediaAccess and revokeMediaAccess", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  // Setup: Upload a private media item
+  const uploadResult = await mediaManagement.uploadMedia({
+    owner: USER_A,
+    url: "http://example.com/secret.doc",
+    fileName: "secret.doc",
+    mimeType: "application/msword",
+  });
+  const mediaItemId = uploadResult.mediaItem;
+
+  await t.step("should grant read access to a private media item", async () => {
+    const result = await mediaManagement.grantMediaAccess({
+      mediaItem: mediaItemId,
+      userId: USER_B,
+      access: "read",
+    });
+    assertEquals(result, {}); // Success
+
+    const accessRecord = await mediaManagement.accessControlRecords.findOne({
+      mediaItemId: mediaItemId,
+      userId: USER_B,
+    });
+    assertEquals(accessRecord?.accessLevel, "read");
+  });
+
+  await t.step("should not grant access if media is public", async () => {
+    await mediaManagement.setMediaAccess({
+      mediaItem: mediaItemId,
+      access: "public",
+    });
+    const result = await mediaManagement.grantMediaAccess({
+      mediaItem: mediaItemId,
+      userId: USER_B,
+      access: "read",
+    });
+    assertEquals(result, {}); // No error, but no record should be added
+
+    const accessRecords = await mediaManagement.accessControlRecords.find({
+      mediaItemId: mediaItemId,
+    }).toArray();
+    assertEquals(accessRecords.length, 0); // Should be no specific records if public
+  });
+
+  // Re-set to private for revocation tests
+  await mediaManagement.setMediaAccess({
+    mediaItem: mediaItemId,
+    access: "private",
+  });
+  await mediaManagement.grantMediaAccess({
+    mediaItem: mediaItemId,
+    userId: USER_B,
+    access: "read",
+  }); // Ensure access is granted again
+
+  await t.step("should revoke read access", async () => {
+    const result = await mediaManagement.revokeMediaAccess({
+      mediaItem: mediaItemId,
+      userId: USER_B,
+    });
+    assertEquals(result, {});
+
+    const accessRecord = await mediaManagement.accessControlRecords.findOne({
+      mediaItemId: mediaItemId,
+      userId: USER_B,
+    });
+    assertEquals(accessRecord, null); // Should be deleted
+  });
+
+  await t.step("should not revoke access if media is public", async () => {
+    await mediaManagement.setMediaAccess({
+      mediaItem: mediaItemId,
+      access: "public",
+    });
+    const result = await mediaManagement.revokeMediaAccess({
+      mediaItem: mediaItemId,
+      userId: USER_B,
+    });
+    assertEquals(result, {}); // No error, no specific records to revoke
+
+    const accessRecords = await mediaManagement.accessControlRecords.find({
+      mediaItemId: mediaItemId,
+    }).toArray();
+    assertEquals(accessRecords.length, 0);
+  });
+
+  await t.step("should return an error for invalid parameters in grantMediaAccess", async () => {
+    const result = await mediaManagement.grantMediaAccess({
+      mediaItem: "invalid:id" as ID,
+      userId: USER_B,
+      access: "read",
+    });
+    assertEquals(result.error, "Invalid parameters for granting media access.");
+  });
+
+  await t.step("should return an error for invalid parameters in revokeMediaAccess", async () => {
+    const result = await mediaManagement.revokeMediaAccess({
+      mediaItem: mediaItemId,
+      userId: "invalid:user" as ID,
+    });
+    assertEquals(result.error, "Invalid parameters for revoking media access.");
+  });
+
+  await client.close();
+});
+
+Deno.test("MediaManagementConcept - getMediaItem", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  // Setup:
+  // Media 1: Public
+  const media1Upload = await mediaManagement.uploadMedia({
+    owner: USER_A,
+    url: "http://example.com/public.jpg",
+    fileName: "public.jpg",
+    mimeType: "image/jpeg",
+  });
+  const media1Id = media1Upload.mediaItem;
+  await mediaManagement.setMediaAccess({
+    mediaItem: media1Id,
+    access: "public",
+  });
+
+  // Media 2: Private, owned by USER_A
+  const media2Upload = await mediaManagement.uploadMedia({
+    owner: USER_A,
+    url: "http://example.com/private_owner.png",
+    fileName: "private_owner.png",
+    mimeType: "image/png",
+  });
+  const media2Id = media2Upload.mediaItem;
+
+  // Media 3: Private, owned by USER_B, USER_A has access
+  const media3Upload = await mediaManagement.uploadMedia({
+    owner: USER_B,
+    url: "http://example.com/private_shared.gif",
+    fileName: "private_shared.gif",
+    mimeType: "image/gif",
+  });
+  const media3Id = media3Upload.mediaItem;
+  await mediaManagement.grantMediaAccess({
+    mediaItem: media3Id,
+    userId: USER_A,
+    access: "read",
+  });
+
+  await t.step("should allow access to public media", async () => {
+    const result = await mediaManagement.getMediaItem({
+      mediaItem: media1Id,
+      requestingUser: USER_B,
+    });
+    assertEquals(result.hasOwnProperty("error"), false);
+    assertEquals((result as any)._id, media1Id);
+  });
+
+  await t.step("should allow access to owned private media", async () => {
+    const result = await mediaManagement.getMediaItem({
+      mediaItem: media2Id,
+      requestingUser: USER_A,
+    });
+    assertEquals(result.hasOwnProperty("error"), false);
+    assertEquals((result as any)._id, media2Id);
+    assertEquals((result as any).owner, USER_A);
+  });
+
+  await t.step("should allow access to shared private media", async () => {
+    const result = await mediaManagement.getMediaItem({
+      mediaItem: media3Id,
+      requestingUser: USER_A,
+    });
+    assertEquals(result.hasOwnProperty("error"), false);
+    assertEquals((result as any)._id, media3Id);
+    assertEquals((result as any).owner, USER_B); // Owner is USER_B
+  });
+
+  await t.step("should deny access to unowned and unshared private media", async () => {
+    const result = await mediaManagement.getMediaItem({
+      mediaItem: media2Id, // Owned by USER_A, requesting as USER_B
+      requestingUser: USER_B,
+    });
+    assertEquals(result.hasOwnProperty("error"), true);
+    assertEquals((result as { error: string }).error, "Access denied to media item.");
+  });
+
+  await t.step("should deny access to non-existent media", async () => {
+    const result = await mediaManagement.getMediaItem({
+      mediaItem: "nonexistent:media" as ID,
+      requestingUser: USER_A,
+    });
+    assertEquals(result.hasOwnProperty("error"), true);
+    assertEquals((result as { error: string }).error, "Media item with ID nonexistent:media not found.");
+  });
+
+  await client.close();
+});
+
+Deno.test("MediaManagementConcept - getUserMediaItems", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  // Setup:
+  // Upload some media for USER_A
+  const media1Upload = await mediaManagement.uploadMedia({
+    owner: USER_A,
+    url: "http://example.com/a1.jpg",
+    fileName: "a1.jpg",
+    mimeType: "image/jpeg",
+  });
+  const media2Upload = await mediaManagement.uploadMedia({
+    owner: USER_A,
+    url: "http://example.com/a2.png",
+    fileName: "a2.png",
+    mimeType: "image/png",
+  });
+
+  // Upload some media for USER_B
+  await mediaManagement.uploadMedia({
+    owner: USER_B,
+    url: "http://example.com/b1.gif",
+    fileName: "b1.gif",
+    mimeType: "image/gif",
+  });
+
+  await t.step("should return all media items for USER_A", async () => {
+    const result = await mediaManagement.getUserMediaItems({ user: USER_A });
+    assertEquals(result.hasOwnProperty("error"), false);
+    assertEquals((result as any).mediaItems.length, 2);
+    const mediaIds = (result as any).mediaItems.map((m: any) => m._id);
+    assertEquals(mediaIds.includes(media1Upload.mediaItem), true);
+    assertEquals(mediaIds.includes(media2Upload.mediaItem), true);
+  });
+
+  await t.step("should return an empty array for a user with no media", async () => {
+    const result = await mediaManagement.getUserMediaItems({ user: "user:Charlie" as ID });
+    assertEquals(result.hasOwnProperty("error"), false);
+    assertEquals((result as any).mediaItems.length, 0);
+  });
+
+  await t.step("should return an error for invalid user ID", async () => {
+    const result = await mediaManagement.getUserMediaItems({ user: "" as ID });
+    assertEquals(result.error, "Invalid parameters for getting user media items.");
+  });
+
+  await client.close();
+});
+
+Deno.test("MediaManagementConcept - deleteMediaItem", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  // Setup:
+  // Media 1: Owned by USER_A, private
+  const media1Upload = await mediaManagement.uploadMedia({
+    owner: USER_A,
+    url: "http://example.com/to_delete1.jpg",
+    fileName: "to_delete1.jpg",
+    mimeType: "image/jpeg",
+  });
+  const media1Id = media1Upload.mediaItem;
+  await mediaManagement.grantMediaAccess({
+    mediaItem: media1Id,
+    userId: USER_B,
+    access: "read",
+  }); // Grant access to USER_B
+
+  // Media 2: Owned by USER_B
+  const media2Upload = await mediaManagement.uploadMedia({
+    owner: USER_B,
+    url: "http://example.com/to_delete2.png",
+    fileName: "to_delete2.png",
+    mimeType: "image/png",
+  });
+  const media2Id = media2Upload.mediaItem;
+
+  await t.step("should allow owner to delete their media", async () => {
+    const result = await mediaManagement.deleteMediaItem({
+      mediaItem: media1Id,
+      requestingUser: USER_A,
+    });
+    assertEquals(result, {}); // Success
+
+    const mediaItem = await mediaManagement.mediaItems.findOne({ _id: media1Id });
+    assertEquals(mediaItem, null); // Should be deleted
+
+    const accessRecords = await mediaManagement.accessControlRecords.find({
+      mediaItemId: media1Id,
+    }).toArray();
+    assertEquals(accessRecords.length, 0); // Associated access records should be deleted
+  });
+
+  await t.step("should deny deletion by non-owner", async () => {
+    const result = await mediaManagement.deleteMediaItem({
+      mediaItem: media2Id, // Owned by USER_B, trying to delete as USER_A
+      requestingUser: USER_A,
+    });
+    assertEquals(result.error, "Permission denied: You can only delete media items you own.");
+
+    // Ensure media item was not deleted
+    const mediaItem = await mediaManagement.mediaItems.findOne({ _id: media2Id });
+    assertEquals(mediaItem !== null, true);
+  });
+
+  await t.step("should return an error for non-existent media item", async () => {
+    const result = await mediaManagement.deleteMediaItem({
+      mediaItem: "nonexistent:media" as ID,
+      requestingUser: USER_A,
+    });
+    assertEquals(result.error, "Media item with ID nonexistent:media not found.");
+  });
+
+  await t.step("should return an error for invalid parameters", async () => {
+    const result = await mediaManagement.deleteMediaItem({
+      mediaItem: media2Id,
+      requestingUser: "" as ID,
+    });
+    assertEquals(result.error, "Invalid parameters for deleting media item.");
+  });
+
+  await client.close();
+});
+
+Deno.test("MediaManagementConcept - Principle Test", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  await t.step("Principle: User uploads media, sets it to public, another user accesses it, then owner revokes access (demonstrating lifecycle and access control)", async () => {
+    // 1. USER_A uploads a media item
+    const initialUpload = await mediaManagement.uploadMedia({
+      owner: USER_A,
+      url: "http://example.com/principle_media.mp4",
+      fileName: "principle_media.mp4",
+      mimeType: "video/mp4",
+    });
+    const principleMediaId = initialUpload.mediaItem;
+    console.log(`Principle Trace: ${principleMediaId} uploaded by ${USER_A}`);
+
+    // 2. USER_A sets the media item to public
+    await mediaManagement.setMediaAccess({
+      mediaItem: principleMediaId,
+      access: "public",
+    });
+    console.log(`Principle Trace: Media ${principleMediaId} set to public`);
+
+    // 3. USER_B accesses the media item (should be allowed as it's public)
+    let accessResultB = await mediaManagement.getMediaItem({
+      mediaItem: principleMediaId,
+      requestingUser: USER_B,
+    });
+    assertEquals(accessResultB.hasOwnProperty("error"), false);
+    console.log(`Principle Trace: USER_B successfully accessed public media.`);
+
+    // 4. USER_A sets the media item back to private
+    await mediaManagement.setMediaAccess({
+      mediaItem: principleMediaId,
+      access: "private",
+    });
+    console.log(`Principle Trace: Media ${principleMediaId} set back to private`);
+
+    // 5. USER_B attempts to access the media item again (should be denied as it's now private and USER_B is not owner or granted access)
+    accessResultB = await mediaManagement.getMediaItem({
+      mediaItem: principleMediaId,
+      requestingUser: USER_B,
+    });
+    assertEquals(accessResultB.hasOwnProperty("error"), true);
+    assertEquals((accessResultB as { error: string }).error, "Access denied to media item.");
+    console.log(`Principle Trace: USER_B denied access to private media.`);
+
+    // 6. USER_A grants USER_B read access to the private media item
+    await mediaManagement.grantMediaAccess({
+      mediaItem: principleMediaId,
+      userId: USER_B,
+      access: "read",
+    });
+    console.log(`Principle Trace: USER_A granted USER_B read access to private media.`);
+
+    // 7. USER_B accesses the media item again (should be allowed now)
+    accessResultB = await mediaManagement.getMediaItem({
+      mediaItem: principleMediaId,
+      requestingUser: USER_B,
+    });
+    assertEquals(accessResultB.hasOwnProperty("error"), false);
+    console.log(`Principle Trace: USER_B successfully accessed private media after being granted access.`);
+
+    // 8. USER_A revokes USER_B's access
+    await mediaManagement.revokeMediaAccess({
+      mediaItem: principleMediaId,
+      userId: USER_B,
+    });
+    console.log(`Principle Trace: USER_A revoked USER_B's access.`);
+
+    // 9. USER_B attempts to access the media item one last time (should be denied again)
+    accessResultB = await mediaManagement.getMediaItem({
+      mediaItem: principleMediaId,
+      requestingUser: USER_B,
+    });
+    assertEquals(accessResultB.hasOwnProperty("error"), true);
+    assertEquals((accessResultB as { error: string }).error, "Access denied to media item.");
+    console.log(`Principle Trace: USER_B denied access after access was revoked.`);
+
+    // 10. USER_A deletes the media item
+    await mediaManagement.deleteMediaItem({
+      mediaItem: principleMediaId,
+      requestingUser: USER_A,
+    });
+    console.log(`Principle Trace: Media ${principleMediaId} deleted by ${USER_A}.`);
+
+    // Verify it's deleted
+    const mediaItemAfterDelete = await mediaManagement._getMediaItemById({
+      mediaItemId: principleMediaId,
+    });
+    assertEquals(mediaItemAfterDelete.length, 0);
+  });
+
+  await client.close();
+});
+
+// Add more specific tests for internal queries if needed
+Deno.test("MediaManagementConcept - Internal Queries", async (t) => {
+  const [db, client] = await testDb();
+  const mediaManagement = new MediaManagementConcept(db);
+
+  // Setup
+  const media1Upload = await mediaManagement.uploadMedia({ owner: USER_A, url: "url1", fileName: "f1", mimeType: "mime1" });
+  const media1Id = media1Upload.mediaItem;
+  const media2Upload = await mediaManagement.uploadMedia({ owner: USER_A, url: "url2", fileName: "f2", mimeType: "mime2" });
+  const media2Id = media2Upload.mediaItem;
+  await mediaManagement.setMediaAccess({ mediaItem: media1Id, access: "public" });
+  await mediaManagement.grantMediaAccess({ mediaItem: media2Id, userId: USER_B, access: "read" });
+
+  await t.step("_getMediaItemById should return correct item", async () => {
+    const items = await mediaManagement._getMediaItemById({ mediaItemId: media1Id });
+    assertEquals(items.length, 1);
+    assertEquals(items[0]._id, media1Id);
+  });
+
+  await t.step("_getMediaItemById should return empty array for non-existent ID", async () => {
+    const items = await mediaManagement._getMediaItemById({ mediaItemId: "nonexistent:id" as ID });
+    assertEquals(items.length, 0);
+  });
+
+  await t.step("_getAccessForUser should return granted access", async () => {
+    const records = await mediaManagement._getAccessForUser({ mediaItemId: media2Id, userId: USER_B });
+    assertEquals(records.length, 1);
+    assertEquals(records[0].mediaItemId, media2Id);
+    assertEquals(records[0].userId, USER_B);
+  });
+
+  await t.step("_getAccessForUser should return empty array if no access", async () => {
+    const records = await mediaManagement._getAccessForUser({ mediaItemId: media1Id, userId: USER_B }); // Media 1 is public, no specific access granted to B
+    assertEquals(records.length, 0);
+  });
+
+  await t.step("_getMediaItemsByOwner should return owned items", async () => {
+    const items = await mediaManagement._getMediaItemsByOwner({ ownerId: USER_A });
+    assertEquals(items.length, 2);
+    const itemIds = items.map(i => i._id);
+    assertEquals(itemIds.includes(media1Id), true);
+    assertEquals(itemIds.includes(media2Id), true);
+  });
+
+  await t.step("_getPublicMediaItems should return only public items", async () => {
+    const items = await mediaManagement._getPublicMediaItems();
+    assertEquals(items.length, 1);
+    assertEquals(items[0]._id, media1Id);
+  });
+
+  await client.close();
+});
+```
