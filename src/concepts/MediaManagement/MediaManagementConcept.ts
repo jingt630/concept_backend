@@ -1,508 +1,272 @@
 import { Collection, Db, ObjectId } from "npm:mongodb";
-import { Empty, ID, Type } from "@utils/types.ts";
+import { Empty, ID } from "@utils/types.ts";
 import { freshID } from "@utils/database.ts";
 
-// Generic types for the MediaManagement concept
-type MediaItem = ID; // Represents an identifier for a media item
-type User = ID; // Represents an identifier for a user
+// Generic types of this concept
+type User = ID;
 
-// Define the structure for media items in the database
-
-interface MediaItems {
-  _id: MediaItem;
-  owner: User;
-  url: string;
-  fileName: string;
-  fileType: string;
-  uploadTimestamp: Date;
-  updateTimestamp: Date;
-  accessControl: "public" | "private";
+/**
+ * A set of MediaFile objects, each representing a managed media file.
+ */
+interface MediaFile {
+  _id: ID; // Unique identifier for the media file
+  filename: string; // The original name of the uploaded file
+  filePath: string; // The path within local storage where the file is located
+  mediaType: string; // e.g., "png", "jpg", "webp"
+  cloudURL: string; // The path in the cloud storage that represents this MediaFile
+  uploadDate: Date; // When the file was uploaded
+  updateDate: Date; // The last time this MediaFile's metadata was updated
+  context?: Record<string, string>; // Result of text extraction for this media
+  translatedText?: Record<string, string>; // Rendered translated versions of the context
+  owner: User; // The user who owns this media file
 }
 
-// Define the structure for access control records in the database
-interface AccessControlRecords {
-  _id: ID; // Generic ID for the access control record
-  mediaItemId: MediaItem;
-  userId: User;
-  accessLevel: "read" | "write"; // For future extensibility, currently only 'read' is implied
+/**
+ * Represents a folder structure within the managed storage.
+ * This is a simplified representation; actual folder creation might be handled at the file system level.
+ */
+interface Folder {
+  _id: ID;
+  filePath: string; // The full path of the folder
+  name: string; // The name of the folder
+  owner: User; // The user who owns this folder
 }
 
-type UploadResult =
-  | { mediaItem: ID } // success
-  | { error: string }; // failure
-
+// Declare collection prefix, use concept name
 const PREFIX = "MediaManagement" + ".";
 
 export default class MediaManagementConcept {
-  mediaItems: Collection<MediaItems>;
-  accessControlRecords: Collection<AccessControlRecords>;
+  mediaFiles: Collection<MediaFile>;
+  folders: Collection<Folder>;
+  private readonly owner: User; // Assuming the concept is instantiated for a specific user
 
-  constructor(private readonly db: Db) {
-    this.mediaItems = this.db.collection(PREFIX + "mediaItems");
-    this.accessControlRecords = this.db.collection(PREFIX + "accessControlRecords");
+  constructor(private readonly db: Db, owner: User) {
+    this.mediaFiles = this.db.collection(PREFIX + "mediaFiles");
+    this.folders = this.db.collection(PREFIX + "folders");
+    this.owner = owner;
   }
 
   /**
-   * uploadMedia (owner: User, url: string, fileName: string, fileType: string): (mediaItem: MediaItem)
+   * upload(filePath: String, mediaType: String, filename: String, relativePath: String): MediaFile
    *
-   * **purpose**: Allow users to upload media items and associate them with their account.
+   * **requires** `filename` is alphabets and numbers and space only. `filePath` specifies a valid path within the app's managed storage. `relativePath` is a valid pathway on the user's computer and has the `mediaType`.
    *
-   * **principle**: If a user uploads a media file, it becomes available under their account for later access.
-   *
-   * **state**:
-   *   a set of MediaItems with
-   *     an owner User
-   *     a url String
-   *     a fileName String
-   *     a fileType String
-   *     an uploadTimestamp Date
-   *     an updateTimestamp Date
-   *     an accessControl String ("public" or "private")
-   *
-   * **requires**: `owner` is a valid User ID. `url`, `fileName`, `fileType` are non-empty strings.
-   *
-   * **effects**: Creates a new MediaItem `m`; sets `m.owner` to `owner`; sets `m.url` to `url`; sets `m.fileName` to `fileName`; sets `m.fileType` to `fileType`; sets `m.uploadTimestamp` to the current time; sets `m.accessControl` to "private" by default; returns `m._id` as `mediaItem`.
+   * **effects**
+   *   * Creates a new `MediaFile` object with a unique `id`, the provided `filename`, `filePath` (inside the app folder in the user's computer), `mediaType`, `uploadDate`, and initiate `updateDate` as the same date the file is uploaded.
+   *   * Initializes `context` to `None` and `translatedVersions` to `None`.
+   *   * The owner of the MedialFile is user.
+   *   * Returns the newly created `MediaFile`.
    */
-  async uploadMedia({
-    owner,url,fileName,fileType,}: {owner: User;url: string;fileName: string;fileType: string;})
-    : Promise<{ mediaItem: MediaItem }> {
-    if (!owner || !url || !fileName || !fileType) {
-      return { error: "Missing required fields for media upload." };
+  async upload({
+    filePath,
+    mediaType,
+    filename,
+    relativePath, // Note: relativePath seems to be unused in the effect description but is part of the input. Assuming it might be for physical file operations not directly modeled here.
+  }: {
+    filePath: string;
+    mediaType: string;
+    filename: string;
+    relativePath: string;
+  }): Promise<MediaFile | {error: string}> {
+    // Basic validation as per requirements
+    if (!/^[a-zA-Z0-9\s]+$/.test(filename)) {
+      return { error: "Filename can only contain alphabets, numbers, and spaces." } as any;
     }
+    // Assuming filePath is a conceptual path within the managed storage,
+    // and we'd perform physical file operations elsewhere.
+    // For this model, we store the conceptual filePath.
 
-    const today = new Date();
-
-    const newMediaItem: MediaItems = {
+    const now = new Date();
+    const newMediaFile: MediaFile = {
       _id: freshID(),
-      owner: owner,
-      url: url,
-      fileName: fileName,
-      fileType: fileType,
-      uploadTimestamp: today,
-      updateTimestamp: today, // Not needed as per current requirements
-      accessControl: "private", // Default to private
+      filename,
+      filePath,
+      mediaType,
+      cloudURL: `gs://your-bucket/${this.owner}/${filePath}/${filename}`, // Example cloud URL structure
+      uploadDate: now,
+      updateDate: now,
+      owner: this.owner,
     };
 
-    await this.mediaItems.insertOne(newMediaItem);
-    return { mediaItem: newMediaItem._id };
+    await this.mediaFiles.insertOne(newMediaFile);
+    return newMediaFile;
   }
 
   /**
-   * setMediaAccess (mediaItem: MediaItem, access: "public" | "private"): Empty
+   * delete(mediaId: String)
    *
-   * **purpose**: Control the visibility and accessibility of uploaded media items.
+   * **requires** `mediaId` corresponds to an existing `MediaFile` owned by the current user.
    *
-   * **principle**: If a user sets a media item to public, it can be accessed by anyone; if set to private, only the owner (and explicitly granted users) can access it.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state)
-   *
-   * **requires**: `mediaItem` is a valid MediaItem ID. `access` is either "public" or "private".
-   *
-   * **effects**: Updates the `accessControl` field of the specified MediaItem `m` to `access`. If `access` is "public", any associated access control records for this `mediaItem` are removed.
+   * **effects**
+   *   * Removes the `MediaFile` object from system and so user is not the owner of it anymore.
    */
-  async setMediaAccess({
-    mediaItem,
-    access,
-  }: {
-    mediaItem: MediaItem;
-    access: "public" | "private";
-  }): Promise<Empty> {
-    if (!mediaItem || (access !== "public" && access !== "private")) {
-      return { error: "Invalid parameters for setting media access." };
+  async delete({ mediaId }: { mediaId: ID }): Promise<Empty | {error: string}> {
+    const result = await this.mediaFiles.deleteOne({
+      _id: mediaId,
+      owner: this.owner,
+    });
+    if (result.deletedCount === 0) {
+      return { error: "Media file not found or not owned by the current user." } as any;
     }
+    // In a real implementation, you would also delete the file from cloud storage.
+    return {};
+  }
 
-    const updateResult = await this.mediaItems.updateOne(
-      { _id: mediaItem },
-      { $set: { accessControl: access } }
+  /**
+   * move(mediaId: String, newFilePath: String)
+   *
+   * **requires** `mediaId` exists and is owned by the current user. `newFilePath` specifies a valid pathway within the storage workspace for the user.
+   *
+   * **effects**
+   *   * Updates the `filePath` of the `MediaFile` object corresponding to `mediaId` to reflect the new location. Physically moves the file data in app storage.
+   */
+  async move({
+    mediaId,
+    newFilePath,
+  }: {
+    mediaId: ID;
+    newFilePath: string;
+  }): Promise<Empty | {error: string}> {
+    const now = new Date();
+    const result = await this.mediaFiles.updateOne(
+      { _id: mediaId, owner: this.owner },
+      { $set: { filePath: newFilePath, updateDate: now } }
     );
 
-    if (updateResult.matchedCount === 0) {
-      return { error: `Media item with ID ${mediaItem} not found.` };
+    if (result.modifiedCount === 0) {
+      return { error: "Media file not found or not owned by the current user." } as any;
     }
 
-    if (access === "public") {
-      // If set to public, remove any specific access control records for this item
-      await this.accessControlRecords.deleteMany({ mediaItemId: mediaItem });
-    }
-
+    // In a real implementation, you would also move the physical file in app storage and potentially update the cloudURL if it depends on filePath.
     return {};
   }
 
   /**
-   * grantMediaAccess (mediaItem: MediaItem, userId: User, access: "read"): Empty
+   * createFolder(filePath: String, name: String)
    *
-   * **purpose**: Allow specific users to access private media items.
+   * **requires** `filePath` is valid. `name` is unique within the folder the `filePath`.
    *
-   * **principle**: If a user is granted read access to a private media item, they can access it even if they are not the owner.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state and AccessControlRecords state)
-   *
-   * **requires**: `mediaItem` is a valid MediaItem ID. `userId` is a valid User ID. `access` is "read". The `mediaItem` must be set to "private".
-   *
-   * **effects**: Creates a new AccessControlRecord `acr`; sets `acr.mediaItemId` to `mediaItem`; sets `acr.userId` to `userId`; sets `acr.accessLevel` to `access`. If the `mediaItem` is public, this action has no effect.
+   * **effects** Creates a new folder structure within the app's managed storage.
    */
-  async grantMediaAccess({
-    mediaItem,
-    userId,
-    access,
+  async createFolder({
+    filePath,
+    name,
   }: {
-    mediaItem: MediaItem;
-    userId: User;
-    access: "read";
-  }): Promise<Empty> {
-    if (!mediaItem || !userId || access !== "read") {
-      return { error: "Invalid parameters for granting media access." };
-    }
-
-    const media = await this.mediaItems.findOne({ _id: mediaItem });
-    if (!media) {
-      return { error: `Media item with ID ${mediaItem} not found.` };
-    }
-
-    if (media.accessControl === "public") {
-      // No need to grant specific access if the item is already public
-      return {};
-    }
-
-    // Check if access is already granted
-    const existingAccess = await this.accessControlRecords.findOne({
-      mediaItemId: mediaItem,
-      userId: userId,
+    filePath: string;
+    name: string;
+  }): Promise<Folder | {error: string}> {
+    // Basic validation: Ensure name is unique for the given filePath and owner
+    const existingFolder = await this.folders.findOne({
+      filePath,
+      name,
+      owner: this.owner,
     });
-    if (existingAccess) {
-      // Access already granted, no action needed or could be considered an error
-      // For now, let's assume no action is needed.
-      return {};
+    if (existingFolder) {
+      return { error: "A folder with this name already exists at this location." } as any;
     }
 
-    const newAccessRecord: AccessControlRecords = {
+    // Simplified validation for filePath (e.g., ensuring it's a conceptual path)
+    // In a real system, you might validate against existing folder paths.
+
+    const newFolder: Folder = {
       _id: freshID(),
-      mediaItemId: mediaItem,
-      userId: userId,
-      accessLevel: access,
+      filePath: filePath,
+      name: name,
+      owner: this.owner,
     };
 
-    await this.accessControlRecords.insertOne(newAccessRecord);
+    await this.folders.insertOne(newFolder);
+    return newFolder;
+  }
+
+  /**
+   * updateContext(mediaId: String, extractionResult: Dictionary[String:String])
+   *
+   * **requires** `mediaId` exists and is owned by the current user. `extractionResult` is a valid structured Dictionary of string to string that provides information about the text in the mediafile with mediaId.
+   *
+   * **effects** Updates the `context` field of the `MediaFile` corresponding to `mediaId` with the provided `extractionResult`. If context field doesn't exist, create one and updates with extractionResult.
+   */
+  async updateContext({
+    mediaId,
+    extractionResult,
+  }: {
+    mediaId: ID;
+    extractionResult: Record<string, string>;
+  }): Promise<Empty | {error: string}> {
+    const now = new Date();
+    const result = await this.mediaFiles.updateOne(
+      { _id: mediaId, owner: this.owner },
+      {
+        $set: { context: extractionResult, updateDate: now },
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return { error: "Media file not found or not owned by the current user." } as any;
+    }
     return {};
   }
 
   /**
-   * revokeMediaAccess (mediaItem: MediaItem, userId: User): Empty
+   * addTranslatedText(mediaId: String, translatedText: Dictionary[String:String])
    *
-   * **purpose**: Remove specific user's access to a private media item.
+   * **requires** `mediaId` exists and is owned by the current user. `translatedText` is a valid structured Dictionary of string to string that provides information about the text in the mediafile with mediaId.
    *
-   * **principle**: If a user's access to a private media item is revoked, they can no longer access it.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state and AccessControlRecords state)
-   *
-   * **requires**: `mediaItem` is a valid MediaItem ID. `userId` is a valid User ID.
-   *
-   * **effects**: Removes any AccessControlRecord `acr` where `acr.mediaItemId` is `mediaItem` and `acr.userId` is `userId`. If the `mediaItem` is public, this action has no effect.
+   * **effects** Appends the `outputVersion` to the `translatedVersions` list of the `MediaFile` corresponding to `mediaId`.
    */
-  async revokeMediaAccess({
-    mediaItem,
-    userId,
+  async addTranslatedText({
+    mediaId,
+    translatedText,
   }: {
-    mediaItem: MediaItem;
-    userId: User;
-  }): Promise<Empty> {
-    if (!mediaItem || !userId) {
-      return { error: "Invalid parameters for revoking media access." };
+    mediaId: ID;
+    translatedText: Record<string, string>;
+  }): Promise<Empty | {error: string}> {
+    const now = new Date();
+    const result = await this.mediaFiles.updateOne(
+      { _id: mediaId, owner: this.owner },
+      {
+        $set: { translatedText: translatedText, updateDate: now },
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return { error: "Media file not found or not owned by the current user." } as any;
     }
-
-    // Check if the media item is public, if so, revoking specific access is moot.
-    const media = await this.mediaItems.findOne({ _id: mediaItem });
-    if (!media) {
-      return { error: `Media item with ID ${mediaItem} not found.` };
-    }
-
-    if (media.accessControl === "public") {
-      // If public, there are no specific access control records to revoke.
-      return {};
-    }
-
-    await this.accessControlRecords.deleteOne({
-      mediaItemId: mediaItem,
-      userId: userId,
-    });
-
-    return {};
-  }
-
-  /**
-   * getMediaItem (mediaItem: MediaItem, requestingUser: User): (mediaItem: MediaItems) | { error: string }
-   *
-   * **purpose**: Retrieve details of a specific media item, enforcing access controls.
-   *
-   * **principle**: If a user requests a media item and it is public, or they are the owner, or they have been granted explicit read access, they will receive the media item's details. Otherwise, access is denied.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state and AccessControlRecords state)
-   *
-   * **requires**: `mediaItem` is a valid MediaItem ID. `requestingUser` is a valid User ID.
-   *
-   * **effects**: Returns the MediaItem object if the `requestingUser` has permission. Otherwise, returns an error.
-   */
-  async getMediaItem({
-    mediaItem,
-    requestingUser,
-  }: {
-    mediaItem: MediaItem;
-    requestingUser: User;
-  }): Promise<MediaItems | { error: string }> {
-    if (!mediaItem || !requestingUser) {
-      return { error: "Invalid parameters for getting media item." };
-    }
-
-    const media = await this.mediaItems.findOne({ _id: mediaItem });
-    if (!media) {
-      return { error: `Media item with ID ${mediaItem} not found.` };
-    }
-
-    // Check if the media is public
-    if (media.accessControl === "public") {
-      return media;
-    }
-
-    // Check if the requesting user is the owner
-    if (media.owner === requestingUser) {
-      return media;
-    }
-
-    // Check if the requesting user has explicit read access
-    const accessGranted = await this.accessControlRecords.findOne({
-      mediaItemId: mediaItem,
-      userId: requestingUser,
-      accessLevel: "read",
-    });
-
-    if (accessGranted) {
-      return media;
-    }
-
-    return { error: "Access denied to media item." };
-  }
-
-  /**
-   * getUserMediaItems (user: User): (mediaItems: MediaItems[])
-   *
-   * **purpose**: Retrieve all media items owned by a specific user.
-   *
-   * **principle**: If a user requests their media items, all items they have uploaded will be returned.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state)
-   *
-   * **requires**: `user` is a valid User ID.
-   *
-   * **effects**: Returns an array of MediaItem objects owned by the specified `user`.
-   */
-  async getUserMediaItems({ user }: { user: User }): Promise<{ mediaItems: MediaItems[] }> {
-    if (!user) {
-      return { error: "Invalid parameters for getting user media items." };
-    }
-
-    const mediaItems = await this.mediaItems.find({ owner: user }).toArray();
-    return { mediaItems };
-  }
-
-  /**
-   * deleteMediaItem (mediaItem: MediaItem, requestingUser: User): Empty
-   *
-   * **purpose**: Allow users to delete their uploaded media items.
-   *
-   * **principle**: If a user deletes a media item they own, it is permanently removed.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state and AccessControlRecords state)
-   *
-   * **requires**: `mediaItem` is a valid MediaItem ID. `requestingUser` is a valid User ID. The `requestingUser` must be the owner of the `mediaItem`.
-   *
-   * **effects**: Deletes the specified MediaItem `m`. Deletes any associated AccessControlRecords for `m`.
-   */
-  async deleteMediaItem({
-    mediaItem,
-    requestingUser,
-  }: {
-    mediaItem: MediaItem;
-    requestingUser: User;
-  }): Promise<Empty> {
-    if (!mediaItem || !requestingUser) {
-      return { error: "Invalid parameters for deleting media item." };
-    }
-
-    const media = await this.mediaItems.findOne({ _id: mediaItem });
-    if (!media) {
-      return { error: `Media item with ID ${mediaItem} not found.` };
-    }
-
-    if (media.owner !== requestingUser) {
-      return { error: "Permission denied: You can only delete media items you own." };
-    }
-
-    // Delete the media item itself
-    await this.mediaItems.deleteOne({ _id: mediaItem });
-
-    // Delete any associated access control records
-    await this.accessControlRecords.deleteMany({ mediaItemId: mediaItem });
-
     return {};
   }
 
   // --- Queries ---
 
   /**
-   * _getMediaItemById (mediaItemId: MediaItem): (mediaItem: MediaItems)
+   * _getMediaFile(mediaId: ID): MediaFile[]
    *
-   * **purpose**: Internal query to retrieve a media item by its ID, without access control checks.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state)
-   *
-   * **effects**: Returns the MediaItem object if found, otherwise an empty array.
+   * Retrieves a specific media file by its ID, ensuring it belongs to the current user.
    */
-  async _getMediaItemById({ mediaItemId }: { mediaItemId: MediaItem }): Promise<MediaItems[]> {
-    if (!mediaItemId) {
-      return [];
-    }
-    const mediaItem = await this.mediaItems.findOne({ _id: mediaItemId });
-    return mediaItem ? [mediaItem] : [];
+  async _getMediaFile(mediaId: ID): Promise<MediaFile[]> {
+    return await this.mediaFiles
+      .find({ _id: mediaId, owner: this.owner })
+      .toArray();
   }
 
   /**
-   * _getAccessForUser (mediaItemId: MediaItem, userId: User): (accessRecords: AccessControlRecords[])
+   * _listMediaFiles(filePath: String): MediaFile[]
    *
-   * **purpose**: Internal query to get access control records for a specific user and media item.
-   *
-   * **state**: (See `AccessControlRecords` state)
-   *
-   * **effects**: Returns an array of AccessControlRecords matching the criteria.
+   * Lists all media files within a given directory path for the current user.
    */
-  async _getAccessForUser({
-    mediaItemId,
-    userId,
-  }: {
-    mediaItemId: MediaItem;
-    userId: User;
-  }): Promise<AccessControlRecords[]> {
-    if (!mediaItemId || !userId) {
-      return [];
-    }
-    return this.accessControlRecords.find({ mediaItemId: mediaItemId, userId: userId }).toArray();
+  async _listMediaFiles(filePath: string): Promise<MediaFile[]> {
+    return await this.mediaFiles
+      .find({ filePath: filePath, owner: this.owner })
+      .toArray();
   }
 
   /**
-   * _getMediaItemsByOwner (ownerId: User): (mediaItems: MediaItems[])
+   * _listFolders(filePath: String): Folder[]
    *
-   * **purpose**: Internal query to retrieve all media items owned by a specific user.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state)
-   *
-   * **effects**: Returns an array of MediaItem objects owned by the specified user.
+   * Lists all subfolders within a given directory path for the current user.
    */
-  async _getMediaItemsByOwner({ ownerId }: { ownerId: User }): Promise<MediaItems[]> {
-    if (!ownerId) {
-      return [];
-    }
-    return this.mediaItems.find({ owner: ownerId }).toArray();
-  }
-
-  /**
-   * _getPublicMediaItems (): (mediaItems: MediaItems[])
-   *
-   * **purpose**: Internal query to retrieve all publicly accessible media items.
-   *
-   * **state**: (See `uploadMedia` for MediaItems state)
-   *
-   * **effects**: Returns an array of MediaItem objects where `accessControl` is "public".
-   */
-  async _getPublicMediaItems(): Promise<MediaItems[]> {
-    return this.mediaItems.find({ accessControl: "public" }).toArray();
-  }
-
-  /**
-   * move(mediaId: String, newFilePath: String)`
-    *   **Require:** `mediaId` exists. `newRelativePath` specifies a valid pathway within
-    * the storage workspace for the user.
-    *   **Effect:**
-        *   Updates the `filePath` of the `MediaFile` object corresponding to `mediaId` to
-        * reflect the new location.Physically moves the file data in app storage.[^1]
-
-[^1:] App storage is within the user's local storage. The cloudURL doesn't change.
-   */
-  async move({ mediaId, newFilePath }: { mediaId: string; newFilePath: string }): Promise<Empty> {
-    if (!mediaId || !newFilePath) {
-      return { error: "Invalid parameters for moving media item." };
-    }
-    const media = await this.mediaItems.findOne({ _id: mediaId as MediaItem });
-    if (!media) {
-      return { error: `Media item with ID ${mediaId} not found.` };
-    }
-    // Update the filePath to the new location
-    await this.mediaItems.updateOne(
-      { _id: mediaId as MediaItem },
-      { $set: { filePath: newFilePath } }
-    );
-    return {};
-  }
-
-  /**
-   * `createFolder(filePath: String, name: String)`
-    *   **Require:** `filePath` is valid. `name` is unique within the folder the `filePath`.
-    *   **Effect:** Creates a new folder structure within the app's managed storage.
-   */
-  async createFolder({ filePath, name }: { filePath: string; name: string }): Promise<Empty> {
-    if (!filePath || !name) {
-      return { error: "Invalid parameters for creating folder." };
-    }
-    // In a real implementation, this would involve filesystem operations. Here, we just simulate the action.
-    // For example, we could check if a folder with the same name already exists at the given path.
-    // Since this is a conceptual implementation, we'll assume success.
-    return {};
-  }
-
-  /**
-   * `updateContext(mediaId: String, extractionResult: Dictionary[String:String])`
-    *   **Require:** `mediaId` exists. `extractionResult` is a valid structured Dictionary of string to string that provides information about the text in the mediafile with mediaId.[^2]
-    *   **Effect:** Updates the `context` field of the `MediaFile` corresponding to `mediaId` with the
-    *  provided `extractionResult`. If context field doesn't exist, create one and updates with extractionResult.
-   */
-  async updateContext({ mediaId, extractionResult }: { mediaId: string; extractionResult: Record<string, string> }): Promise<Empty> {
-    if (!mediaId || !extractionResult) {
-      return { error: "Invalid parameters for updating context." };
-    }
-    const media = await this.mediaItems.findOne({ _id: mediaId as MediaItem });
-    if (!media) {
-      return { error: `Media item with ID ${mediaId} not found.` };
-    }
-    // see if there's context field
-    // If context field doesn't exist, create one and updates with extractionResult.
-    await this.mediaItems.updateOne(
-      { _id: mediaId as MediaItem },
-      { $set: { context: extractionResult } }
-    );
-    return {};
-  }
-  /**
-   * *   `addTranslatedText(mediaId: String, translatedText: Dictionary[String:String])`
-    *   **Require:** `mediaId` exists. `translatedText` is a valid structured Dictionary of string
-    * to string that provides information about the text in the mediafile with mediaId.[^2]
-    *   **Effect:** Appends the `outputVersion` to the `translatedVersions` list of the `MediaFile`
-    * corresponding to `mediaId`.
-[^2:] These two actions aren't accessible by users, they are meant to be called by the app only,
-and so the translatedText or extractionResult given always corresponds to the media identified by
-mediaId.
-   */
-  async addTranslatedText({ mediaId, translatedText }: { mediaId: string; translatedText: Record<string, string> }): Promise<Empty> {
-    if (!mediaId || !translatedText) {
-      return { error: "Invalid parameters for adding translated text." };
-    }
-    const media = await this.mediaItems.findOne({ _id: mediaId as MediaItem });
-    if (!media) {
-      return { error: `Media item with ID ${mediaId} not found.` };
-    }
-    // see if there's translatedVersions field
-    // If translatedVersions field doesn't exist, create one and updates with translatedText.
-    await this.mediaItems.updateOne(
-      { _id: mediaId as MediaItem },
-      { $set: { translatedVersions: translatedText } }
-    );
-    return {};
+  async _listFolders(filePath: string): Promise<Folder[]> {
+    return await this.folders
+      .find({ filePath: filePath, owner: this.owner })
+      .toArray();
   }
 }
