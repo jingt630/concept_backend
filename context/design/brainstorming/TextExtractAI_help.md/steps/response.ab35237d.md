@@ -1,0 +1,535 @@
+---
+timestamp: 'Sun Oct 19 2025 00:30:33 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251019_003033.0a793f12.md]]'
+content_id: ab35237d8b4064d143943b58baa32f75590ed9465b416280aa3da5688f2f7e5f
+---
+
+# response:
+
+```typescript
+import { Collection, Db } from "npm:mongodb";
+import { Empty, ID } from "@utils/types.ts";
+import { GeminiLLM } from "@concepts/gemini-llm"; // Assuming gemini-llm.ts is in the concepts folder
+import fs from "fs";
+import path from "path";
+import sizeOf from "image-size";
+
+// Declare collection prefix, use concept name
+const PREFIX = "TextExtraction" + ".";
+
+// Generic types of this concept
+type FilePath = ID;
+type ExtractionResultId = ID;
+type LocationId = ID;
+type Coordinate = number;
+type TextId = string;
+
+/**
+ * Represents the coordinates of a bounding box.
+ */
+interface Coordinates {
+  x: Coordinate;
+  y: Coordinate;
+}
+
+/**
+ * Represents a location within an image.
+ */
+interface Location {
+  _id: LocationId;
+  extractionResultId: ExtractionResultId;
+  fromCoord: Coordinates;
+  toCoord: Coordinates;
+}
+
+/**
+ * Represents the extracted text and its bounding box.
+ */
+interface ExtractionResult {
+  _id: ExtractionResultId;
+  imagePath: FilePath;
+  extractedText: string;
+  position: LocationId; // Reference to the Location document
+  textId: TextId;
+}
+
+export default class TextExtractionConcept {
+  extractionResults: Collection<ExtractionResult>;
+  locations: Collection<Location>;
+  private readonly geminiLLM: GeminiLLM;
+
+  constructor(private readonly db: Db, geminiLLM: GeminiLLM) {
+    this.extractionResults = this.db.collection(PREFIX + "extractionResults");
+    this.locations = this.db.collection(PREFIX + "locations");
+    this.geminiLLM = geminiLLM;
+  }
+
+  /**
+   * Extract text from an image using an LLM and store the results.
+   *
+   * **requires**: `image` exists in application and accessible.
+   *
+   * **effects**: Creates new `ExtractionResult` and `Location` documents for each detected text block.
+   *              `extractedText` will be the text the AI recognizes at `position`.
+   *              An unique `textId` is assigned for each `ExtractionResult` associated with the same `imagePath`.
+   */
+  async extractTextFromMedia({
+    image,
+  }: {
+    image: FilePath;
+  }): Promise<{ results: ExtractionResultId[] }> {
+    try {
+      const imageExists = fs.existsSync(image);
+      if (!imageExists) {
+        return { error: "Image file not found" };
+      }
+
+      const resolvedPath = path.resolve(image);
+      const buffer = await fs.promises.readFile(resolvedPath);
+      const dimensions = sizeOf(buffer);
+      if (!dimensions.width || !dimensions.height) {
+        return { error: "Unable to determine image dimensions" };
+      }
+
+      const prompt = `You are an OCR assistant. Read all visible text in the given image
+        and return only the readable text. Do not describe the image or repeat the base64 data.
+        Return plain text only, formatted for readability by numbering each text block you recognize.
+        Also keep track of the position of each text block in the image, using coordinates.
+        Coordinates are given as (x,y) pairs, where (0,0) is the top-left corner of the image.
+        The 'from' coordinate is the top-left corner of the text block, and the 'to' coordinate is
+        the bottom-right corner. The coordinates should be integers representing pixel positions in the image
+        relative to the image dimensions. If no text can be found, return "No text found". When two or more
+        short text segments appear close together (within the same logical phrase or line group), merge them
+        into a single text block rather than splitting them. Treat small vertical spacing as part of the same
+        block if the text forms a continuous sentence or title.
+        Do not add, infer, or search for any information that is not explicitly readable.
+        Do not use external knowledge or guess missing words based on what the image might represent.
+        Apply the same grouping logic for all languages — English, Chinese, or others — merging vertically or
+        horizontally aligned characters that form a single title or phrase.
+        When estimating coordinates, ensure that (from) and (to) precisely cover only the visible text area.
+        Avoid random or uniform coordinates that do not match the actual layout.
+        Keep numeric elements together with their associated words (e.g., “2025” and “Festival”)
+        in a single text block whenever they belong to the same phrase or visual line.
+        The incoming image's dimensions is ${dimensions.width}x${dimensions.height}. Label text blocks with accurate coordinates
+        that are relevant to the image's dimensions.
+        Strictly follow this format, with no extra commentary:
+        An example response format:
+        1: <text> (from: {x:12, y:34}, to: {x:56, y:78})
+        2: <text> (from: {x:90, y:12}, to: {x:34, y:56})
+        ...
+        N: <text> (from: {x:A, y:B}, to: {x:C, y:D})
+        Number of text blocks: N`;
+
+      const llmResponse = await this.geminiLLM.executeLLM(prompt, image);
+      const extractedData = this.parseLLMResponse(llmResponse, image);
+
+      const newExtractionResultIds: ExtractionResultId[] = [];
+
+      for (const extraction of extractedData) {
+        const newLocationId = new ObjectId() as LocationId;
+        const newExtractionResultId = new ObjectId() as ExtractionResultId;
+
+        await this.locations.insertOne({
+          _id: newLocationId,
+          extractionResultId: newExtractionResultId,
+          fromCoord: extraction.fromCoord,
+          toCoord: extraction.toCoord,
+        });
+
+        await this.extractionResults.insertOne({
+          _id: newExtractionResultId,
+          imagePath: image,
+          extractedText: extraction.extractedText,
+          position: newLocationId,
+          textId: extraction.textId,
+        });
+        newExtractionResultIds.push(newExtractionResultId);
+      }
+
+      return { results: newExtractionResultIds };
+    } catch (error: any) {
+      console.error("❌ Error extracting text from media:", error.message);
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Edits the extracted text of a specific extraction result.
+   *
+   * **requires**: `extractedTextId` exists.
+   *
+   * **effects**: Modifies `extractedText` in the `ExtractionResult` to `newText`.
+   */
+  async editExtractText({
+    extractedTextId,
+    newText,
+  }: {
+    extractedTextId: ExtractionResultId;
+    newText: string;
+  }): Promise<Empty> {
+    const result = await this.extractionResults.updateOne(
+      { _id: extractedTextId },
+      { $set: { extractedText: newText } },
+    );
+
+    if (result.matchedCount === 0) {
+      return { error: "ExtractionResult not found" };
+    }
+    return {};
+  }
+
+  /**
+   * Edits the location (bounding box) of a specific extraction result.
+   *
+   * **requires**: `extractedTextId` exists. The coordinates do not include negative numbers.
+   *
+   * **effects**: Changes the `position` of `extractedText` to a new `Location` defined by `fromCoord` and `toCoord`.
+   */
+  async editLocation({
+    extractedTextId,
+    fromCoord,
+    toCoord,
+  }: {
+    extractedTextId: ExtractionResultId;
+    fromCoord: Coordinates;
+    toCoord: Coordinates;
+  }): Promise<Empty> {
+    if (
+      fromCoord.x < 0 ||
+      fromCoord.y < 0 ||
+      toCoord.x < 0 ||
+      toCoord.y < 0
+    ) {
+      return { error: "Coordinates cannot be negative." };
+    }
+
+    const extraction = await this.extractionResults.findOne({
+      _id: extractedTextId,
+    });
+
+    if (!extraction) {
+      return { error: "ExtractionResult not found" };
+    }
+
+    await this.locations.updateOne(
+      { _id: extraction.position },
+      { $set: { fromCoord: fromCoord, toCoord: toCoord } },
+    );
+
+    return {};
+  }
+
+  /**
+   * Adds a new, empty extraction result for a media.
+   *
+   * **requires**: `media` exists. Numbers are non-negative.
+   *
+   * **effects**: Creates a new `ExtractionResult` with the same `media`, initializes `extractedText` as empty,
+   *              assigns an unique `textId` based on the `filePath`, and sets the `position` created from the two given coordinates.
+   */
+  async addExtractionTxt({
+    media,
+    fromCoord,
+    toCoord,
+  }: {
+    media: FilePath;
+    fromCoord: Coordinates;
+    toCoord: Coordinates;
+  }): Promise<{ result: ExtractionResultId }> {
+    if (
+      fromCoord.x < 0 ||
+      fromCoord.y < 0 ||
+      toCoord.x < 0 ||
+      toCoord.y < 0
+    ) {
+      return { error: "Coordinates cannot be negative." };
+    }
+
+    // Check for overlapping extraction areas
+    const overlapping = await this.checkOverlap(fromCoord, toCoord, media);
+    if (overlapping.length > 0) {
+      return { error: "Overlapping extraction area" };
+    }
+
+    const existingExtractions = await this.extractionResults
+      .find({ imagePath: media })
+      .toArray();
+    const textId = `${media}_${existingExtractions.length}`; // Simple unique ID generation
+    const newExtractionResultId = new ObjectId() as ExtractionResultId;
+
+    const newLocationId = new ObjectId() as LocationId;
+    await this.locations.insertOne({
+      _id: newLocationId,
+      extractionResultId: newExtractionResultId,
+      fromCoord: fromCoord,
+      toCoord: toCoord,
+    });
+
+    await this.extractionResults.insertOne({
+      _id: newExtractionResultId,
+      imagePath: media,
+      extractedText: "", // Initializes extractedText as empty
+      position: newLocationId,
+      textId: textId,
+    });
+
+    return { result: newExtractionResultId };
+  }
+
+  /**
+   * Deletes an extraction result by its textId and imagePath.
+   *
+   * **requires**: `textId` exists in the `imagePath`.
+   *
+   * **effects**: Removes the `ExtractionResult` and its associated `Location` with the specified `textId`.
+   */
+  async deleteExtraction({
+    textId,
+    imagePath,
+  }: {
+    textId: TextId;
+    imagePath: FilePath;
+  }): Promise<Empty> {
+    const extractionResult = await this.extractionResults.findOne({
+      textId: textId,
+      imagePath: imagePath,
+    });
+
+    if (!extractionResult) {
+      return { error: "ExtractionResult not found with the given textId and imagePath." };
+    }
+
+    await this.locations.deleteOne({
+      extractionResultId: extractionResult._id,
+    });
+    await this.extractionResults.deleteOne({ _id: extractionResult._id });
+
+    return {};
+  }
+
+  // --- Helper Methods ---
+
+  /**
+   * Parses the LLM response string into structured extraction data.
+   * @param response The raw string response from the LLM.
+   * @param imagePath The path of the image for which the text was extracted.
+   * @returns An array of structured extraction objects.
+   */
+  private parseLLMResponse(response: string, imagePath: FilePath): Array<{
+    extractedText: string;
+    fromCoord: Coordinates;
+    toCoord: Coordinates;
+    textId: TextId;
+  }> {
+    if (!response || response === "No text found") return [];
+
+    const results: Array<{
+      extractedText: string;
+      fromCoord: Coordinates;
+      toCoord: Coordinates;
+      textId: TextId;
+    }> = [];
+    const lines = response.split(/\r?\n/);
+    let textBlockCount = 0;
+
+    const coordRegex =
+      /\(from:\s*{x:(-?\d+),\s*y:(-?\d+)},\s*to:\s*{x:(-?\d+),\s*y:(-?\d+)}\s*\)/gi;
+    const numberRegex = /^\s*(\d+)\s*[:\.\)]\s*(.*)$/;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      // Skip summary lines
+      if (/^Number of text block/i.test(line)) continue;
+
+      const match = line.match(numberRegex);
+      if (!match) continue;
+
+      const idx = parseInt(match[1], 10);
+      let text = match[2].trim();
+
+      // Remove trailing coordinate parenthesis if present
+      text = text.replace(/\s*\([^)]*(from|to)[^)]*\)\s*$/i, "").trim();
+      text = text.replace(/\s*\([^)]*\)\s*$/, "").trim(); // Remove any other trailing parenthetical
+
+      // Strip surrounding quotes and HTML-like tags
+      text = text.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, "").replace(/<\/?[^>]+(>|$)/g, "").trim();
+
+      // Find corresponding coordinates
+      const coordMatches = [...text.matchAll(coordRegex)];
+      let fromCoord: Coordinates = { x: 0, y: 0 };
+      let toCoord: Coordinates = { x: 0, y: 0 };
+
+      if (coordMatches.length > 0) {
+        const currentCoordMatch = coordMatches.find(cm => cm[0].includes(text.substring(text.length - 10))); // Heuristic to find the right coordinate block
+        if (currentCoordMatch) {
+          fromCoord = {
+            x: parseInt(currentCoordMatch[1], 10),
+            y: parseInt(currentCoordMatch[2], 10),
+          };
+          toCoord = {
+            x: parseInt(currentCoordMatch[3], 10),
+            y: parseInt(currentCoordMatch[4], 10),
+          };
+        }
+      }
+      
+      // Generate textId: simple counter for uniqueness within an image
+      const textId: TextId = `${imagePath}_${idx}`;
+
+      if (text.length > 0) {
+        results.push({
+          extractedText: text,
+          fromCoord: fromCoord,
+          toCoord: toCoord,
+          textId: textId,
+        });
+        textBlockCount++;
+      }
+    }
+
+    // Optional: Validate count if LLM provided it
+    const declaredCountMatch = response.match(/Number of text block(?:s)?\s*\[:-]\s*(\d+)/i);
+    if (declaredCountMatch) {
+        const declaredCount = parseInt(declaredCountMatch[1], 10);
+        if (!isNaN(declaredCount) && declaredCount !== textBlockCount) {
+            console.warn(`LLM declared ${declaredCount} text blocks, but parsed ${textBlockCount}.`);
+        }
+    }
+
+    return results;
+  }
+
+  /**
+   * Checks if a given bounding box overlaps with existing extractions for a specific image.
+   * @param fromCoord The top-left coordinate of the new bounding box.
+   * @param toCoord The bottom-right coordinate of the new bounding box.
+   * @param imagePath The path of the image.
+   * @returns A promise that resolves to an array of overlapping ExtractionResult documents.
+   */
+  private async checkOverlap(
+    fromCoord: Coordinates,
+    toCoord: Coordinates,
+    imagePath: FilePath
+  ): Promise<ExtractionResult[]> {
+    const overlappingLocations = await this.locations
+      .aggregate([
+        {
+          $match: {
+            fromCoord: { $ne: null }, // Ensure coordinates exist
+            toCoord: { $ne: null },
+          },
+        },
+        {
+          $lookup: {
+            from: PREFIX + "extractionResults", // The collection to join with
+            localField: "extractionResultId",
+            foreignField: "_id",
+            as: "extractionResult",
+          },
+        },
+        {
+          $unwind: "$extractionResult", // Deconstruct the array field from the lookup
+        },
+        {
+          $match: {
+            "extractionResult.imagePath": imagePath, // Filter by image path
+            // Check for overlap
+            $or: [
+              {
+                "fromCoord.x": { $lt: toCoord.x },
+                "toCoord.x": { $gt: fromCoord.x },
+                "fromCoord.y": { $lt: toCoord.y },
+                "toCoord.y": { $gt: fromCoord.y },
+              },
+            ],
+          },
+        },
+        {
+          $replaceRoot: { newRoot: "$extractionResult" }, // Return the extraction result document
+        },
+      ])
+      .toArray();
+
+    return overlappingLocations;
+  }
+
+  // --- Queries ---
+
+  /**
+   * Retrieves all extraction results for a given image path.
+   */
+  async _getExtractionResultsForImage({
+    imagePath,
+  }: {
+    imagePath: FilePath;
+  }): Promise<{ results: Array<ExtractionResult & { position: Location }> }> {
+    try {
+      const extractionResults = await this.extractionResults
+        .find({ imagePath })
+        .toArray();
+
+      const resultsWithLocations = [];
+      for (const extraction of extractionResults) {
+        const location = await this.locations.findOne({
+          _id: extraction.position,
+        });
+        if (location) {
+          resultsWithLocations.push({ ...extraction, position: location });
+        } else {
+          // Handle case where location might be missing (should ideally not happen)
+          resultsWithLocations.push({ ...extraction, position: null as any });
+        }
+      }
+
+      return { results: resultsWithLocations };
+    } catch (error: any) {
+      console.error(
+        "❌ Error retrieving extraction results for image:",
+        error.message,
+      );
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Retrieves the location details for a specific extraction result ID.
+   */
+  async _getLocationForExtraction({
+    extractionResultId,
+  }: {
+    extractionResultId: ExtractionResultId;
+  }): Promise<{ location: Location | null }> {
+    try {
+      const location = await this.locations.findOne({
+        extractionResultId: extractionResultId,
+      });
+      return { location: location };
+    } catch (error: any) {
+      console.error(
+        "❌ Error retrieving location for extraction:",
+        error.message,
+      );
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Retrieves a specific extraction result by its ID.
+   */
+  async _getExtractionResultById({
+    extractionResultId,
+  }: {
+    extractionResultId: ExtractionResultId;
+  }): Promise<{ result: ExtractionResult | null }> {
+    try {
+      const result = await this.extractionResults.findOne({
+        _id: extractionResultId,
+      });
+      return { result: result };
+    } catch (error: any) {
+      console.error("❌ Error retrieving extraction result by ID:", error.message);
+      return { error: error.message };
+    }
+  }
+}
+```
