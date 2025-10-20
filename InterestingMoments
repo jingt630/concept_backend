@@ -1,0 +1,22 @@
+1. While talking with the AI, I learned to keep modularity
+between concepts, the AI provided code uses tons of ID to
+represent more complex or non-generic variable types.[ModularityCodeExample](Images\ID_Usuage.png)
+
+2. When asking AI to implement and test the concept back to back where I didn't change the implmentation whether it's in the ts or md file, AI still can't
+properly test itself. There's often lots of type
+mismatch or type issues I have to fix manually. [TypeMismatches](Images\TypeMismatch.png)
+
+3. AI is really bad in solving dependency bugs because this requires the knowledge of almost all files since files are connected to each other layer
+with layer. I tried for so long getting the AI prompt to work during testing
+but an error of util.isString function doesn't exist when I don't even use
+that function at all. The AI just kept talking back and forth how to fix it
+with the same method. [DependencyIssues](Images\DependencyIssue.png)
+
+4. Asking the AI to create test for implementation is indeed really fast
+and can create a whole suite of multi-action test cases. Those test cases
+usually cover most aspects but the accuracy or complexity of it is not strong
+enough.[VeryLongTestSuite](Images\TestSuite.png)
+
+5. I try experiencing with # prompt AI with an image file to see if I can
+just use the provided AI execution function to make my code work. However,
+passing an image file as doc to AI just creates blob of mess.[MessupResponse](Images\ImageExtract.png)

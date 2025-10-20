@@ -1,6 +1,7 @@
 {
     "imports": {
         "@concepts/": "./src/concepts/",
+        "@google/genai": "npm:@google/genai@^1.25.0",
         "@utils/": "./src/utils/",
         "express": "npm:express@^5.1.0",
         "file": "npm:file@^0.2.2",

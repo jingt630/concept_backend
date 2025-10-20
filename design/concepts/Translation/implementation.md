@@ -4,9 +4,11 @@
 
 [@implementing-concepts](../../background/implementing-concepts.md)
 
-[@TranslationConcept](../../concepts/Translation/Translation.md)
+[@TranslationConcept](./Translation.md)
 
+[@AI](../../../gemini-llm.ts)
 # implement: Translation
+import AI so it can translate the given original text into translated text. Since this is translation only, there's no need to feed into image
 
 # response:
 
@@ -15,38 +17,35 @@
 ```typescript
 import { Collection, Db } from "npm:mongodb";
 import { Empty, ID } from "@utils/types.ts";
-import { freshID } from "@utils/database.ts";
+import { GeminiLLM } from "./gemini-llm.ts";
 
 // Declare collection prefix, use concept name
 const PREFIX = "Translation" + ".";
 
 // Generic types of this concept
-type filePath = ID; // Assuming filePath is an ID for reference
-type TranslationID = ID;
-type OriginalTextID = ID;
+type FilePath = ID; // Represents a file path
+type TransTextId = string; // Unique identifier for translated text
+type TargetLanguage = string; // Language code (e.g., "en", "fr")
+type OriginalTextId = ID; // Unique identifier for original text
 
 /**
- * A set of Translations with
- *   imagePath of type filePath
- *   transTextId of type String
- *   targetLanguage of type String
- *   originalTextId of type String
- *   translatedText of type String
+ * Represents a translation entry.
  */
 interface Translations {
-  _id: TranslationID;
-  imagePath: filePath;
-  transTextId: string;
-  targetLanguage: string;
-  originalTextId: OriginalTextID;
-  translatedText: string;
+  _id: TransTextId; // Unique identifier for the translation
+  imagePath: FilePath; // Path to the image associated with the translation
+  targetLanguage: TargetLanguage; // The language the text was translated into
+  originalTextId: OriginalTextId; // ID of the original text
+  translatedText: string; // The translated text
 }
 
 export default class TranslationConcept {
   translations: Collection<Translations>;
+  private readonly geminiLLM: GeminiLLM;
 
   constructor(private readonly db: Db) {
     this.translations = this.db.collection(PREFIX + "translations");
+    this.geminiLLM = new GeminiLLM();
   }
 
   /**
@@ -62,28 +61,34 @@ export default class TranslationConcept {
     originalText,
     originalTextId,
   }: {
-    imagePath: filePath;
-    targetLanguage: string;
+    imagePath: FilePath;
+    targetLanguage: TargetLanguage;
     originalText: string;
-    originalTextId: OriginalTextID;
-  }): Promise<{ translation: TranslationID }> {
-    // TODO: Implement AI-assisted translation
-    // For now, we'll simulate a translation and create a dummy transTextId
-    const translatedText = `AI translated: "${originalText}" to ${targetLanguage}`;
-    const transTextId = freshID(); // Generate a unique ID for the translated text
+    originalTextId: OriginalTextId;
+  }): Promise<{ translation: TransTextId }> {
+    try {
+      const transTextId = `${originalTextId}:${targetLanguage}:${Date.now()}` as TransTextId; // Simple ID generation for now
 
-    const newTranslation: Translations = {
-      _id: freshID(),
-      imagePath,
-      transTextId,
-      targetLanguage,
-      originalTextId,
-      translatedText,
-    };
+      // Use GeminiLLM for translation
+      const prompt = `Translate the following text to ${targetLanguage}: "${originalText}"`;
+      const translatedText = await this.geminiLLM.executeLLM(prompt); // Assume GeminiLLM handles imagePath if needed in future
 
-    await this.translations.insertOne(newTranslation);
+      const newTranslation: Translations = {
+        _id: transTextId,
+        imagePath: imagePath,
+        targetLanguage: targetLanguage,
+        originalTextId: originalTextId,
+        translatedText: translatedText,
+      };
 
-    return { translation: newTranslation._id };
+      await this.translations.insertOne(newTranslation);
+
+      return { translation: transTextId };
+    } catch (error) {
+      console.error("Error creating translation:", error);
+      // Return an error object as per the documentation for normal errors
+      return { error: (error as Error).message };
+    }
   }
 
   /**
@@ -97,25 +102,29 @@ export default class TranslationConcept {
     translation,
     newText,
   }: {
-    translation: TranslationID;
+    translation: TransTextId;
     newText: string;
   }): Promise<Empty> {
-    const result = await this.translations.updateOne(
-      { _id: translation },
-      { $set: { translatedText: newText } },
-    );
+    try {
+      const result = await this.translations.updateOne(
+        { _id: translation },
+        { $set: { translatedText: newText } },
+      );
 
-    if (result.matchedCount === 0) {
-      return { error: "Translation not found" };
+      if (result.matchedCount === 0) {
+        throw new Error(`Translation with ID ${translation} not found.`);
+      }
+      return {};
+    } catch (error) {
+      console.error("Error editing translation:", error);
+      return { error: (error as Error).message };
     }
-
-    return {};
   }
 
   /**
    * changeLanguage (translation: Translation, newTargetLang: String)
    *
-   * **requires**: `translation` exists. `newTargetLang` is a real language.
+   * **requires**: `extractedText` exists. `newTargetLang` is a real language.
    *
    * **effects**: Changes the `targetLanguage` to `newTargetLang`. Sets `translatedText` to a new translated version in the `newTargetLang` generated by the AI.
    */
@@ -123,80 +132,83 @@ export default class TranslationConcept {
     translation,
     newTargetLang,
   }: {
-    translation: TranslationID;
-    newTargetLang: string;
-  }): Promise<Empty> {
-    const existingTranslation = await this.translations.findOne({
-      _id: translation,
-    });
+    translation: TransTextId;
+    newTargetLang: TargetLanguage;
+  }): Promise<{ translation: TransTextId }> {
+    try {
+      const existingTranslation = await this.translations.findOne({
+        _id: translation,
+      });
 
-    if (!existingTranslation) {
-      return { error: "Translation not found" };
-    }
+      if (!existingTranslation) {
+        throw new Error(`Translation with ID ${translation} not found.`);
+      }
 
-    // TODO: Implement AI-assisted translation for the new language
-    const translatedText = `AI re-translated "${existingTranslation.originalTextId}" to ${newTargetLang}`;
+      // Use GeminiLLM for translation to the new language
+      const prompt = `Translate the following text to ${newTargetLang}: "${existingTranslation.translatedText}"`;
+      const translatedText = await this.geminiLLM.executeLLM(prompt);
 
-    const result = await this.translations.updateOne(
-      { _id: translation },
-      {
-        $set: {
-          targetLanguage: newTargetLang,
-          translatedText: translatedText,
+      // Update the translation document
+      await this.translations.updateOne(
+        { _id: translation },
+        {
+          $set: {
+            targetLanguage: newTargetLang,
+            translatedText: translatedText,
+          },
         },
-      },
-    );
+      );
 
-    if (result.matchedCount === 0) {
-      return { error: "Translation not found during update" };
+      return { translation: translation }; // Return the updated translation ID
+    } catch (error) {
+      console.error("Error changing language:", error);
+      return { error: (error as Error).message };
     }
-
-    return {};
   }
 
-  // Optional: Add a query to retrieve a translation
+  // --- Queries (optional, but good for testing and inspection) ---
+
   /**
-   * _getTranslation (translationId: TranslationID): (translation: Translation)
+   * _getTranslationById (translationId: TransTextId): (translation: Translations)
    *
    * **requires**: `translationId` exists.
    *
-   * **effects**: Returns the translation with the given ID.
+   * **effects**: Returns the full translation object for the given ID.
    */
-  async _getTranslation({
-    translationId,
-  }: {
-    translationId: TranslationID;
-  }): Promise<
-    | Array<{
-        translation: {
-          _id: TranslationID;
-          imagePath: filePath;
-          transTextId: string;
-          targetLanguage: string;
-          originalTextId: OriginalTextID;
-          translatedText: string;
-        };
-      }>
-    | Array<{ error: string }>
-  > {
-    const translation = await this.translations.findOne({ _id: translationId });
-
-    if (!translation) {
-      return [{ error: "Translation not found" }];
+  async _getTranslationById(
+    translationId: TransTextId,
+  ): Promise<Translations[]> {
+    try {
+      const translation = await this.translations.findOne({ _id: translationId });
+      if (translation) {
+        return [translation];
+      } else {
+        return [];
+      }
+    } catch (error) {
+      console.error("Error getting translation by ID:", error);
+      return [{ error: (error as Error).message } as any]; // Indicate error in the result array
     }
+  }
 
-    return [
-      {
-        translation: {
-          _id: translation._id,
-          imagePath: translation.imagePath,
-          transTextId: translation.transTextId,
-          targetLanguage: translation.targetLanguage,
-          originalTextId: translation.originalTextId,
-          translatedText: translation.translatedText,
-        },
-      },
-    ];
+  /**
+   * _getTranslationsByOriginalTextId (originalTextId: OriginalTextId): (translations: Translations)
+   *
+   * **requires**: `originalTextId` exists.
+   *
+   * **effects**: Returns all translations associated with the given original text ID.
+   */
+  async _getTranslationsByOriginalTextId(
+    originalTextId: OriginalTextId,
+  ): Promise<Translations[]> {
+    try {
+      const cursor = this.translations.find({ originalTextId: originalTextId });
+      const translations = await cursor.toArray();
+      return translations;
+    } catch (error) {
+      console.error("Error getting translations by original text ID:", error);
+      return [{ error: (error as Error).message } as any]; // Indicate error in the result array
+    }
   }
 }
 ```

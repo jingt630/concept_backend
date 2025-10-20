@@ -5,7 +5,6 @@
  * The LLM prompt is hardwired with user preferences and doesn't take external hints.
  */
 import * as fs from 'node:fs';
-import { mainModule } from "node:process";
 import { GoogleGenAI } from 'npm:@google/genai';
 /**
  * Configuration for API access
@@ -29,6 +28,8 @@ export class GeminiLLM {
                 config = JSON.parse(Deno.readTextFileSync(configPath));
             }
             const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+            console.log("no error here yet");
 
             const parts: any[] = [{ text: prompt }];
 
@@ -59,5 +60,3 @@ export class GeminiLLM {
             throw error;
         }    }
 }
-
-
