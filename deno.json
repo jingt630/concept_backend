@@ -3,6 +3,7 @@
         "@concepts/": "./src/concepts/",
         "@concepts": "./src/concepts/concepts.ts",
         "@test-concepts": "./src/concepts/test_concepts.ts",
+        "@google/genai": "npm:@google/genai@^1.25.0",
         "@utils/": "./src/utils/",
         "@engine": "./src/engine/mod.ts",
         "@syncs": "./src/syncs/syncs.ts"

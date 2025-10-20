@@ -14,10 +14,12 @@
     "jsr:@std/uuid@*": "1.0.7",
     "jsr:@std/yaml@*": "1.0.9",
     "npm:@google/genai@*": "1.21.0",
+    "npm:@google/genai@^1.25.0": "1.25.0",
     "npm:@types/mdast@4": "4.0.4",
     "npm:express@^5.1.0": "5.1.0",
     "npm:file@~0.2.2": "0.2.2",
     "npm:fs@^0.0.1-security": "0.0.1-security",
+    "npm:image-size@*": "2.0.2",
     "npm:image-size@^2.0.2": "2.0.2",
     "npm:mdast-util-from-markdown@2": "2.0.2",
     "npm:mdast-util-frontmatter@2": "2.0.1",
@@ -72,6 +74,13 @@
   "npm": {
     "@google/genai@1.21.0": {
       "integrity": "sha512-k47DECR8BF9z7IJxQd3reKuH2eUnOH5NlJWSe+CKM6nbXx+wH3hmtWQxUQR9M8gzWW1EvFuRVgjQssEIreNZsw==",
+      "dependencies": [
+        "google-auth-library",
+        "ws"
+      ]
+    },
+    "@google/genai@1.25.0": {
+      "integrity": "sha512-IBNyel/umavam98SQUfvQSvh/Rp6Ql2fysQLqPyWZr5K8d768X9AO+JZU4o+3qvFDUBA0dVYUSkxyYonVcICvA==",
       "dependencies": [
         "google-auth-library",
         "ws"
@@ -1018,6 +1027,7 @@
   },
   "workspace": {
     "dependencies": [
+      "npm:@google/genai@^1.25.0",
       "npm:express@^5.1.0",
       "npm:file@~0.2.2",
       "npm:fs@^0.0.1-security",
