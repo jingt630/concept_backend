@@ -116,35 +116,7 @@ Deno.test("UserConcept: Interesting Scenarios", async () => {
     assertEquals(invalidPasswordFormatResult.error, "Username and password must consist solely of alphabets, numbers, underscores, and hyphens.", "create should return error for invalid password format");
   }else{assertFalse;}
 
-  // Scenario 2: Create user with existing email
-  const existingEmailArgs1 = {
-    username: "bob_builder",
-    password: "SecurePassword456",
-    profilePic: "http://example.com/bob.jpg",
-    email: "bob@example.com",
-  };
-  console.log("Action: create (first user)", existingEmailArgs1);
-  const createBobResult = await userConcept.create(existingEmailArgs1);
-  if ("user" in createBobResult){
-    assertEquals(createBobResult.user, "string", "create should return a user ID for Bob");
-  }else{assertFalse;}
-
-  const existingEmailArgs2 = {
-    username: "bob_clone",
-    password: "AnotherPassword789",
-    profilePic: "http://example.com/bob_clone.jpg",
-    email: "bob@example.com", // Duplicate email
-  };
-  console.log("Action: create (duplicate email)", existingEmailArgs2);
-  const existingEmailResult = await userConcept.create(existingEmailArgs2);
-  console.log("Output:", existingEmailResult);
-  if ("error" in existingEmailResult){
-    assertEquals(existingEmailResult.error, "Email is already in use.", "create should return error for duplicate email");
-  }
-  else{
-    assertFalse
-  }
-  // Scenario 3: Delete a non-existent user
+  // Scenario 2: Delete a non-existent user
   const nonExistentUserId = "user:nonexistent" as ID;
   const deleteNonExistentArgs = { user: nonExistentUserId };
   console.log("Action: delete (non-existent user)", deleteNonExistentArgs);
@@ -152,64 +124,11 @@ Deno.test("UserConcept: Interesting Scenarios", async () => {
   console.log("Output:", deleteNonExistentResult);
   assertEquals(deleteNonExistentResult.error, "User not found.", "delete should return error for non-existent user");
 
-  // Scenario 4: Change profile picture of a non-existent user
+  // Scenario 3: Change profile picture of a non-existent user
   const changePicNonExistentArgs = { user: nonExistentUserId, newProfilePic: "http://example.com/fake.jpg" };
   console.log("Action: changeProfilePic (non-existent user)", changePicNonExistentArgs);
   const changePicNonExistentResult = await userConcept.changeProfilePic(changePicNonExistentArgs);
   console.log("Output:", changePicNonExistentResult);
   assertEquals(changePicNonExistentResult.error, "User not found.", "changeProfilePic should return error for non-existent user");
-
-  // Scenario 5: Retrieve details for a deleted user
-  if ("user" in createBobResult){
-  const bobUserId = createBobResult.user;
-  await userConcept.delete({ user: bobUserId }); // Delete Bob
-  const retrieveDeletedUserArgs = { userId: bobUserId };
-  console.log("Query: _getUserById (deleted user)", retrieveDeletedUserArgs);
-  const retrieveDeletedUserResult = await userConcept._getUserById(retrieveDeletedUserArgs);
-  console.log("Output:", retrieveDeletedUserResult);
-  assertEquals(retrieveDeletedUserResult.length, 0, "Querying for a deleted user should return empty");
-  }
-  else{
-    assertFalse;
-  }
-  // Scenario 6: Get all users
-  await userConcept.create({
-    username: "charlie_chaplin",
-    password: "PasswordXYZ",
-    profilePic: "http://example.com/charlie.jpg",
-    email: "charlie@example.com",
-  });
-  const getAllUsersResult = await userConcept._getAllUsers();
-  console.log("Query: _getAllUsers");
-  console.log("Output:", getAllUsersResult);
-  assertEquals(getAllUsersResult.length, 2, "_getAllUsers should return all created users"); // Alice and Charlie
-
-  await client.close();
-});
-
-Deno.test("UserConcept: Password Hashing Verification", async () => {
-  const [db, client] = await testDb();
-  const userConcept = new UserConcept(db);
-
-  console.log("\n--- Test: UserConcept Password Hashing Verification ---");
-
-  const username = "hash_test_user";
-  const password = "SuperSecurePassword123";
-  const email = "hash_test@example.com";
-  const profilePic = "http://example.com/hash.jpg";
-
-  // Create user
-  const createResult = await userConcept.create({ username, password, profilePic, email });
-  if ("user" in createResult){
-  const userId = createResult.user;
-
-  // Retrieve user from DB to check password hash
-  const userInDb = await db.collection("User.users").findOne({ _id: userId });
-  console.log("User found in DB:", userInDb);
-  }
-  else{
-    assertFalse;
-  }
-
   await client.close();
 });

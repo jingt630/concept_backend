@@ -1,3 +1,12 @@
+---
+timestamp: 'Mon Oct 20 2025 01:14:58 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251020_011458.ecd50f86.md]]'
+content_id: 0e121396b59e76588989de16313b56cd889cffb27f8fb43f6fd030de3927acbd
+---
+
+# file: src\concepts\Rendering\Rendering.ts
+
+```typescript
 import { Collection, Db, InsertOneResult } from "npm:mongodb";
 import { Empty, ID } from "@utils/types.ts";
 
@@ -174,3 +183,5 @@ export default class OutputRenderConcept {
     return await this.outputVersions.find().toArray();
   }
 }
+
+```

@@ -18,3 +18,6 @@ as the LikertSurvey example. [ConceptFolder](design\concepts)
 
 # Changes from the app design as a whole
 [AppDesignChange](design\brainstorming\ChangeInApp.md)
+
+# Console Output
+[ConsoleOutput](TestOutputs.md)

@@ -1,14 +1,23 @@
+---
+timestamp: 'Mon Oct 20 2025 01:18:59 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251020_011859.9a809d37.md]]'
+content_id: 2e0e59da9bfd673ba2ca91c3c91f2fa13c7a241096d423f25f28d7f2ab4596ef
+---
+
+# file: src/concepts/OutputRenderConcept.ts
+
+```typescript
 import { Collection, Db, InsertOneResult } from "npm:mongodb";
-import { Empty, ID } from "@utils/types.ts";
+import { Empty, ID, File as MockFile } from "@utils/types.ts"; // Renamed File to MockFile to avoid conflict
+import { freshID } from "@utils/database.ts"; // Import freshID for generating IDs
 
 // Declare collection prefix, use concept name
 const PREFIX = "OutputRender" + ".";
 
 // Generic types of this concept
 type OutputVersionID = ID;
-type RenderedContentID = ID; // Assuming RenderedContent can also have an ID if it's stored separately
-type TextElementID = ID; // Assuming TextElement can also have an ID if it's stored separately
-type PositionID = ID; // Assuming Position can also have an ID if it's stored separately
+// Assuming RenderedContent, TextElement, and Position are complex objects and not referenced by their own IDs externally
+// If they were, they would need their own type definitions and collections.
 
 /**
  * A Position object with x, y, x2, y2 coordinates.
@@ -24,7 +33,7 @@ interface Position {
  * A TextElement object with text, position, and optional rendering properties.
  */
 interface TextElement {
-  _id: TextElementID; // Use _id for TextElement if it needs to be individually managed/referenced
+  // _id: TextElementID; // Not explicitly needed if embedded and not referenced externally
   text: string;
   position: Position;
   fontSize?: string;
@@ -36,6 +45,7 @@ interface TextElement {
  * RenderedContent object containing a list of text elements.
  */
 interface RenderedContent {
+  // _id: RenderedContentID; // Not explicitly needed if embedded and not referenced externally
   textElements: TextElement[];
 }
 
@@ -45,22 +55,11 @@ interface RenderedContent {
 interface OutputVersion {
   _id: OutputVersionID;
   imagePath: string;
-  renderedData: RenderedContent; // We embed RenderedContent directly for simplicity, but it could be a reference to another collection.
-}
-
-/**
- * ExportedFile object to represent local filepath
- */
-interface ExportedFile {
-  name: string;
-  content: string;
-  destination: string;
+  renderedData: RenderedContent; // We embed RenderedContent directly for simplicity
 }
 
 export default class OutputRenderConcept {
   outputVersions: Collection<OutputVersion>;
-  // We are embedding RenderedContent and TextElement within OutputVersion for simplicity
-  // If RenderedContent or TextElement were to be managed independently, they would have their own collections.
 
   constructor(private readonly db: Db) {
     this.outputVersions = this.db.collection(PREFIX + "outputVersions");
@@ -83,17 +82,31 @@ export default class OutputRenderConcept {
     // In a real implementation, this would involve image processing libraries to overlay text.
     // For this example, we'll simulate the creation of an OutputVersion document.
 
-    // Ensure contentToRender has an _id if it's meant to be managed independently.
-    // For now, we'll assume contentToRender is a direct object and we'll generate IDs for its sub-elements if needed.
+    // Simulate validation of contentToRender (as per 'requires' clause)
+    if (!imagePath) {
+      throw new Error("imagePath is required.");
+    }
+    if (!contentToRender || !contentToRender.textElements) {
+      throw new Error("contentToRender is required and must contain textElements.");
+    }
+    for (const te of contentToRender.textElements) {
+      if (te.position.x < 0 || te.position.y < 0 || te.position.x2 < 0 || te.position.y2 < 0) {
+        throw new Error("Positions must be non-negative.");
+      }
+      // Add more validation for color, font size if necessary
+    }
+
+
     const newRenderedContent: RenderedContent = {
+      // No explicit _id needed if not referenced elsewhere, MongoDB will assign _id
       textElements: contentToRender.textElements.map((te) => ({
         ...te,
-        _id: crypto.randomUUID() as TextElementID, // Simulate generating an ID for each text element
+        // No explicit _id needed for textElements if they are part of the embedded RenderedContent
       })),
     };
 
     const newOutputVersion: OutputVersion = {
-      _id: crypto.randomUUID() as OutputVersionID, // Simulate generating an ID for the OutputVersion
+      _id: freshID(), // Generate a new ID for the OutputVersion
       imagePath,
       renderedData: newRenderedContent,
     };
@@ -118,12 +131,7 @@ export default class OutputRenderConcept {
     output: OutputVersion;
     destination: string;
     type: string;
-  }): Promise<
-    {
-      file:
-        ExportedFile; /* In a real scenario, this would be a File-like object or path */
-    }
-  > {
+  }): Promise<{ file: MockFile }> { // Using MockFile type
     // This is a placeholder for actual file export logic.
     // In a real application, this would involve interacting with file system APIs or cloud storage.
 
@@ -131,9 +139,20 @@ export default class OutputRenderConcept {
       `Exporting output version ${output._id} to ${destination} as ${type}`,
     );
 
+    // Simulate validation of inputs (as per 'requires' clause)
+    if (!output || !output._id) {
+      throw new Error("Valid output object is required.");
+    }
+    if (!destination) {
+      throw new Error("Destination path is required.");
+    }
+    const supportedTypes = ["png", "jpg", "gif"]; // Example supported types
+    if (!supportedTypes.includes(type.toLowerCase())) {
+      throw new Error(`Unsupported export type: ${type}. Supported types are: ${supportedTypes.join(', ')}.`);
+    }
+
     // Simulate the creation of a file object.
-    // In a real scenario, this would be actual file data.
-    const exportedFile = {
+    const exportedFile: MockFile = {
       name: `${output._id}.${type}`,
       content: `Simulated content for ${output.imagePath} with rendered data.`,
       destination: `${destination}/${output._id}.${type}`,
@@ -174,3 +193,4 @@ export default class OutputRenderConcept {
     return await this.outputVersions.find().toArray();
   }
 }
+```
