@@ -1,3 +1,12 @@
+---
+timestamp: 'Mon Oct 20 2025 01:55:08 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251020_015508.e39c8a83.md]]'
+content_id: 6d38718c3c5c9bed1eac880ab27ce44f5d75586bb76541f4af215ebcc18ec270
+---
+
+# response:
+
+```
 running 5 tests from ./src/concepts/LikertSurvey/LikertSurveyConcept.test.ts
 Principle: Author creates survey, respondent answers, author views results ... ok (1s)
 Action: createSurvey requires scaleMin < scaleMax ... ok (696ms)
@@ -274,3 +283,4 @@ Output: { error: "User not found." }
 UserConcept: Interesting Scenarios ... ok (628ms)
 
 ok | 19 passed (33 steps) | 0 failed (23s)
+```
