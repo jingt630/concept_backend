@@ -1,13 +1,20 @@
-// import "@deno/shim-commonjs";
-import { imageSize } from "image-size";
+---
+timestamp: 'Sun Oct 19 2025 19:09:03 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251019_190903.a0d9e82f.md]]'
+content_id: 22b5ced6783cd3b7871bbe23055ff38c910017a174fffbe0c218c0138757ae32
+---
+
+# file: src\concepts\TextExtraction\TextExtraction.ts
+
+```typescript
+import "@deno/shim-commonjs";
+import sizeOf from "npm:image-size@^1.0.2";
 
 import { Collection, Db } from "npm:mongodb";
 import { Empty, ID } from "@utils/types.ts";
 import { GeminiLLM } from "../../../gemini-llm.ts"; // Assuming gemini-llm.ts is in the concepts folder
-import * as fs from "node:fs";
+import fs from "fs";
 import path from "path";
-import "jsr:@std/dotenv/load";
-
 // Remove the incorrect import: import sizeOf from "image-size";
 
 // Declare collection prefix, use concept name
@@ -82,9 +89,7 @@ export default class TextExtractionConcept {
 
       const resolvedPath = path.resolve(image);
       const buffer = await fs.promises.readFile(resolvedPath);
-      // console.log("ImageSize imported:", typeof imageSize);
-      const dimensions = imageSize(buffer);
-      // const dimensions = {width: 500, height: 300};
+      const dimensions = sizeOf(buffer);
       if (!dimensions.width || !dimensions.height) {
         return { error: "Unable to determine image dimensions" };
       }
@@ -563,3 +568,5 @@ export default class TextExtractionConcept {
     }
   }
 }
+
+```

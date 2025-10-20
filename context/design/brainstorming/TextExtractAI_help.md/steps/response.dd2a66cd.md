@@ -1,14 +1,18 @@
-// import "@deno/shim-commonjs";
-import { imageSize } from "image-size";
+---
+timestamp: 'Sun Oct 19 2025 06:55:31 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251019_065531.b7b95ab4.md]]'
+content_id: dd2a66cd53ced9eaf2f50c24a3ba4295e22a60dc3530cc3f09c4c9d0696804ef
+---
 
+# response:
+
+```typescript
 import { Collection, Db } from "npm:mongodb";
 import { Empty, ID } from "@utils/types.ts";
-import { GeminiLLM } from "../../../gemini-llm.ts"; // Assuming gemini-llm.ts is in the concepts folder
-import * as fs from "node:fs";
+import { GeminiLLM } from "./gemini-llm.ts"; // Assuming gemini-llm.ts is in the concepts folder
+import fs from "fs";
 import path from "path";
-import "jsr:@std/dotenv/load";
-
-// Remove the incorrect import: import sizeOf from "image-size";
+import sizeOf from "image-size";
 
 // Declare collection prefix, use concept name
 const PREFIX = "TextExtraction" + ".";
@@ -82,15 +86,13 @@ export default class TextExtractionConcept {
 
       const resolvedPath = path.resolve(image);
       const buffer = await fs.promises.readFile(resolvedPath);
-      // console.log("ImageSize imported:", typeof imageSize);
-      const dimensions = imageSize(buffer);
-      // const dimensions = {width: 500, height: 300};
+      // image-size expects a buffer, not a path.
+      const dimensions = sizeOf(buffer);
       if (!dimensions.width || !dimensions.height) {
         return { error: "Unable to determine image dimensions" };
       }
 
-      const prompt =
-        `You are an OCR assistant. Read all visible text in the given image
+      const prompt = `You are an OCR assistant. Read all visible text in the given image
         and return only the readable text. Do not describe the image or repeat the base64 data.
         Return plain text only, formatted for readability by numbering each text block you recognize.
         Also keep track of the position of each text block in the image, using coordinates.
@@ -125,10 +127,8 @@ export default class TextExtractionConcept {
       const newExtractionResultIds: ExtractionResultId[] = [];
 
       for (const extraction of extractedData) {
-        // Assuming ID is something like string or ObjectId, and the DB will generate _id.
-        // If you need explicit ID generation here, adjust `ID` type and instantiation.
-        const newLocationId = new Object() as LocationId; // Placeholder, DB will assign _id
-        const newExtractionResultId = new Object() as ExtractionResultId; // Placeholder, DB will assign _id
+        const newLocationId = new Object() as LocationId;
+        const newExtractionResultId = new Object() as ExtractionResultId;
 
         await this.locations.insertOne({
           _id: newLocationId,
@@ -148,7 +148,7 @@ export default class TextExtractionConcept {
       }
 
       return { results: newExtractionResultIds };
-    } catch (error: any) { // Consider more specific error types than 'any' if possible
+    } catch (error: any) {
       console.error("❌ Error extracting text from media:", error.message);
       return { error: error.message };
     }
@@ -255,10 +255,10 @@ export default class TextExtractionConcept {
     const existingExtractions = await this.extractionResults
       .find({ imagePath: media })
       .toArray();
-    const textId = `${media}_${existingExtractions.length}`; // Simple unique ID generation
-    const newExtractionResultId = new Object() as ExtractionResultId; // Placeholder
+    const textId: TextId = `${media}_${existingExtractions.length}`; // Simple unique ID generation
+    const newExtractionResultId = new Object() as ExtractionResultId;
 
-    const newLocationId = new Object() as LocationId; // Placeholder
+    const newLocationId = new Object() as LocationId;
     await this.locations.insertOne({
       _id: newLocationId,
       extractionResultId: newExtractionResultId,
@@ -297,10 +297,7 @@ export default class TextExtractionConcept {
     });
 
     if (!extractionResult) {
-      return {
-        error:
-          "ExtractionResult not found with the given textId and imagePath.",
-      };
+      return { error: "ExtractionResult not found with the given textId and imagePath." };
     }
 
     await this.locations.deleteOne({
@@ -356,10 +353,7 @@ export default class TextExtractionConcept {
       text = text.replace(/\s*\([^)]*\)\s*$/, "").trim(); // Remove any other trailing parenthetical
 
       // Strip surrounding quotes and HTML-like tags
-      text = text.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, "").replace(
-        /<\/?[^>]+(>|$)/g,
-        "",
-      ).trim();
+      text = text.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, "").replace(/<\/?[^>]+(>|$)/g, "").trim();
 
       // Find corresponding coordinates
       const coordMatches = [...text.matchAll(coordRegex)];
@@ -367,24 +361,46 @@ export default class TextExtractionConcept {
       let toCoord: Coordinates = { x: 0, y: 0 };
 
       if (coordMatches.length > 0) {
-        const currentCoordMatch = coordMatches.find((cm) => {
-          // A more robust way to find the correct match if text might contain similar patterns
-          // This heuristic relies on the coordinate block being close to the end of the 'text' string.
-          // A more precise parsing of the LLM output structure would be ideal if possible.
-          const coordinateBlockText = cm[0];
-          return text.includes(coordinateBlockText.trim());
-        });
-        if (currentCoordMatch) {
+        // The LLM might not always include coordinates for every text block, or they might be in a slightly different format.
+        // We try to find the last coordinate set in the line that pertains to this text.
+        let foundMatch = null;
+        // Iterate backwards to find the closest coordinate set to the end of the text
+        for (let i = coordMatches.length - 1; i >= 0; i--) {
+            const currentMatch = coordMatches[i];
+            const textBeforeCoords = text.substring(0, currentMatch.index || 0).trim();
+            // Simple heuristic: if the text before the coordinates is not empty, assume these coordinates belong to the current text.
+            if (textBeforeCoords.length > 0) {
+                foundMatch = currentMatch;
+                break;
+            }
+        }
+
+        if (foundMatch) {
           fromCoord = {
-            x: parseInt(currentCoordMatch[1], 10),
-            y: parseInt(currentCoordMatch[2], 10),
+            x: parseInt(foundMatch[1], 10),
+            y: parseInt(foundMatch[2], 10),
           };
           toCoord = {
-            x: parseInt(currentCoordMatch[3], 10),
-            y: parseInt(currentCoordMatch[4], 10),
+            x: parseInt(foundMatch[3], 10),
+            y: parseInt(foundMatch[4], 10),
           };
+        } else {
+            // If no coordinates are found for this text block, try to find any coordinates in the whole line.
+            // This is a fallback and might not be accurate if there are multiple coordinate sets.
+            const anyCoordMatch = line.match(coordRegex);
+            if (anyCoordMatch) {
+                 fromCoord = {
+                    x: parseInt(anyCoordMatch[1], 10),
+                    y: parseInt(anyCoordMatch[2], 10),
+                 };
+                 toCoord = {
+                    x: parseInt(anyCoordMatch[3], 10),
+                    y: parseInt(anyCoordMatch[4], 10),
+                 };
+            }
         }
       }
+
 
       // Generate textId: simple counter for uniqueness within an image
       const textId: TextId = `${imagePath}_${idx}`;
@@ -401,16 +417,12 @@ export default class TextExtractionConcept {
     }
 
     // Optional: Validate count if LLM provided it
-    const declaredCountMatch = response.match(
-      /Number of text block(?:s)?\s*[:\-]\s*(\d+)/i,
-    ); // Fixed regex for "Number of text blocks: N"
+    const declaredCountMatch = response.match(/Number of text block(?:s)?\s*[:\-\–]\s*(\d+)/i);
     if (declaredCountMatch) {
-      const declaredCount = parseInt(declaredCountMatch[1], 10);
-      if (!isNaN(declaredCount) && declaredCount !== textBlockCount) {
-        console.warn(
-          `LLM declared ${declaredCount} text blocks, but parsed ${textBlockCount}.`,
-        );
-      }
+        const declaredCount = parseInt(declaredCountMatch[1], 10);
+        if (!isNaN(declaredCount) && declaredCount !== textBlockCount) {
+            console.warn(`LLM declared ${declaredCount} text blocks, but parsed ${textBlockCount}.`);
+        }
     }
 
     return results;
@@ -421,15 +433,17 @@ export default class TextExtractionConcept {
    * @param fromCoord The top-left coordinate of the new bounding box.
    * @param toCoord The bottom-right coordinate of the new bounding box.
    * @param imagePath The path of the image.
-   * @returns A promise that resolves to an array of overlapping ExtractionResult documents.
+   * @returns A promise that resolves to an array of ExtractionResult documents.
    */
   private async checkOverlap(
     fromCoord: Coordinates,
     toCoord: Coordinates,
-    imagePath: FilePath,
+    imagePath: FilePath
   ): Promise<ExtractionResult[]> {
-    const overlappingDocuments = await this.locations
-      .aggregate([
+    // The type of `overlappingLocations` should be `ExtractionResult[]` as per the function's return type.
+    // The aggregation pipeline needs to be adjusted to ensure that the output documents match the `ExtractionResult` interface.
+    const overlappingLocations = await this.locations
+      .aggregate<Location>([ // Explicitly type the output of this stage as Location
         {
           $match: {
             fromCoord: { $ne: null }, // Ensure coordinates exist
@@ -467,8 +481,13 @@ export default class TextExtractionConcept {
       ])
       .toArray();
 
-    // Explicitly cast the result to ExtractionResult[]
-    return overlappingDocuments as ExtractionResult[];
+    // Ensure that the returned array conforms to ExtractionResult[]
+    // The aggregation pipeline with $replaceRoot: { newRoot: "$extractionResult" } should already produce documents
+    // that are structured like ExtractionResult if the 'extractionResult' field from the lookup is correctly structured.
+    // No explicit type assertion is needed here if the pipeline is correctly set up.
+    // However, if there are discrepancies or if you want to be extra safe, you could add a validation step.
+    // For now, we assume the pipeline correctly outputs documents compatible with ExtractionResult.
+    return overlappingLocations as ExtractionResult[];
   }
 
   // --- Queries ---
@@ -480,11 +499,7 @@ export default class TextExtractionConcept {
     imagePath,
   }: {
     imagePath: FilePath;
-  }): Promise<
-    { results: Array<ExtractionResult & { position: Location }> } | {
-      error: string;
-    }
-  > {
+  }): Promise<{ results: Array<ExtractionResult & { position: Location }> } | { error: string }> {
     try {
       const extractionResults = await this.extractionResults
         .find({ imagePath })
@@ -499,18 +514,13 @@ export default class TextExtractionConcept {
           resultsWithLocations.push({ ...extraction, position: location });
         } else {
           // Handle case where location might be missing (should ideally not happen)
-          // Log a warning and use a placeholder or handle as an error.
-          console.warn(
-            `Location not found for extraction ID: ${extraction._id}`,
-          );
-          // If Location can be null and is expected, the type should be `position: Location | null`
-          // For now, using `as any` as a temporary measure if this is an unexpected error state.
-          resultsWithLocations.push({ ...extraction, position: null as any });
+          resultsWithLocations.push({ ...extraction, position: null as any }); // Still needs to conform to the return type if `location` is null
         }
       }
 
-      return { results: resultsWithLocations };
-    } catch (error: any) { // Consider more specific error types than 'any' if possible
+      // Explicitly cast to the expected return type
+      return { results: resultsWithLocations as Array<ExtractionResult & { position: Location }> };
+    } catch (error: any) {
       console.error(
         "❌ Error retrieving extraction results for image:",
         error.message,
@@ -532,7 +542,7 @@ export default class TextExtractionConcept {
         extractionResultId: extractionResultId,
       });
       return { location: location };
-    } catch (error: any) { // Consider more specific error types than 'any' if possible
+    } catch (error: any) {
       console.error(
         "❌ Error retrieving location for extraction:",
         error.message,
@@ -554,12 +564,10 @@ export default class TextExtractionConcept {
         _id: extractionResultId,
       });
       return { result: result };
-    } catch (error: any) { // Consider more specific error types than 'any' if possible
-      console.error(
-        "❌ Error retrieving extraction result by ID:",
-        error.message,
-      );
+    } catch (error: any) {
+      console.error("❌ Error retrieving extraction result by ID:", error.message);
       return { error: error.message };
     }
   }
 }
+```
