@@ -1,7 +1,8 @@
-[@implementation](../../../src/concepts/Rendering/Rendering.ts)
-[@testing-concepts](../../background/testing-concepts.md)
-
-# test: Rendering
+---
+timestamp: 'Sun Oct 19 2025 20:57:39 GMT-0400 (Eastern Daylight Time)'
+parent: '[[..\20251019_205739.b4bc055a.md]]'
+content_id: 1573422226ed0aa5e427955a41fc25b010206698d560494e0f8796d8b3a94d86
+---
 
 # response:
 

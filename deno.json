@@ -1,16 +1,11 @@
 {
     "imports": {
         "@concepts/": "./src/concepts/",
-<<<<<<< HEAD
         "@concepts": "./src/concepts/concepts.ts",
         "@test-concepts": "./src/concepts/test_concepts.ts",
         "@utils/": "./src/utils/",
         "@engine": "./src/engine/mod.ts",
         "@syncs": "./src/syncs/syncs.ts"
-=======
-        "@utils/": "./src/utils/",
-        "npm:google-generative-ai": "npm:google-generative-ai"
->>>>>>> 281ea54 (implemented and tested TextExtraction without using AI yet)
     },
     "tasks": {
         "start": "deno run --allow-net --allow-write --allow-read --allow-sys --allow-env src/main.ts",
@@ -26,4 +21,5 @@
             ]
         }
     }
+
 }

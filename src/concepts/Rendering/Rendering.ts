@@ -7,8 +7,8 @@ const PREFIX = "OutputRender" + ".";
 // Generic types of this concept
 type OutputVersionID = ID;
 type RenderedContentID = ID; // Assuming RenderedContent can also have an ID if it's stored separately
-type TextElementID = ID;     // Assuming TextElement can also have an ID if it's stored separately
-type PositionID = ID;        // Assuming Position can also have an ID if it's stored separately
+type TextElementID = ID; // Assuming TextElement can also have an ID if it's stored separately
+type PositionID = ID; // Assuming Position can also have an ID if it's stored separately
 
 /**
  * A Position object with x, y, x2, y2 coordinates.
@@ -47,6 +47,15 @@ interface OutputVersion {
   _id: OutputVersionID;
   imagePath: string;
   renderedData: RenderedContent; // We embed RenderedContent directly for simplicity, but it could be a reference to another collection.
+}
+
+/**
+ * ExportedFile object to represent local filepath
+ */
+interface ExportedFile {
+  name: string;
+  content: string;
+  destination: string;
 }
 
 export default class OutputRenderConcept {
@@ -111,7 +120,12 @@ export default class OutputRenderConcept {
     output: OutputVersion;
     destination: string;
     type: string;
-  }): Promise<{ file: string /* In a real scenario, this would be a File-like object or path */ }> {
+  }): Promise<
+    {
+      file:
+        ExportedFile; /* In a real scenario, this would be a File-like object or path */
+    }
+  > {
     // This is a placeholder for actual file export logic.
     // In a real application, this would involve interacting with file system APIs or cloud storage.
 
