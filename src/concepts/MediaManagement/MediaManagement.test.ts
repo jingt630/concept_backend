@@ -1,6 +1,6 @@
 import { testDb } from "@utils/database.ts";
 import { assertEquals, assertExists } from "jsr:@std/assert";
-import MediaManagementConcept from "./MediaManagementConcept.ts";
+import MediaManagementConcept from "./MediaManagement.ts";
 import { ID } from "@utils/types.ts";
 
 // Helper function to create a mock user ID
@@ -9,14 +9,15 @@ const mockUser = "user:testuser" as ID;
 Deno.test("MediaManagement Concept Tests", async (t) => {
   const [db, client] = await testDb();
 
-  // Instantiate the concept for a specific user
-  const mediaManagement = new MediaManagementConcept(db, mockUser);
+  // Instantiate the concept (userId will be passed per request)
+  const mediaManagement = new MediaManagementConcept(db);
 
   // --- Test Cases for Actions ---
 
   await t.step("upload action: successful upload", async () => {
     console.log("--- Testing upload: successful upload ---");
     const uploadResult = await mediaManagement.upload({
+      userId: mockUser,
       filePath: "/photos",
       mediaType: "png",
       filename: "holidayPhoto",
@@ -40,9 +41,10 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     assertEquals(uploadResult.translatedText, undefined);
 
     // Verify state change using queries
-    const retrievedMedia = await mediaManagement._getMediaFile(
-      uploadResult._id,
-    );
+    const retrievedMedia = await mediaManagement._getMediaFile({
+      userId: mockUser,
+      mediaId: uploadResult._id,
+    });
     assertEquals(retrievedMedia.length, 1);
     assertEquals(retrievedMedia[0]._id, uploadResult._id);
     assertEquals(retrievedMedia[0].filename, "holidayPhoto");
@@ -51,10 +53,11 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
   await t.step("upload action: invalid filename", async () => {
     console.log("--- Testing upload: invalid filename ---");
     const uploadResult = await mediaManagement.upload({
+      userId: mockUser,
       filePath: "/documents",
       mediaType: "txt",
-      filename: "invalid-file", // Contains hyphen
-      relativePath: "local/path/to/invalid-file.txt",
+      filename: "invalid@file#name", // Contains invalid characters @ and #
+      relativePath: "local/path/to/invalid@file.txt",
     });
 
     console.log(
@@ -66,13 +69,14 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     assertEquals(
       "error" in uploadResult,
       true,
-      "Filename can only contain alphabets, numbers, and spaces.",
+      "Filename can only contain alphabets, numbers, spaces, dots, hyphens, and underscores.",
     );
   });
 
   await t.step("createFolder action: successful creation", async () => {
     console.log("--- Testing createFolder: successful creation ---");
     const createFolderResult = await mediaManagement.createFolder({
+      userId: mockUser,
       filePath: "/documents",
       name: "reports",
     });
@@ -92,7 +96,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     assertEquals(createFolderResult.owner, mockUser);
 
     // Verify state change
-    const folders = await mediaManagement._listFolders("/documents");
+    const folders = await mediaManagement._listFolders({ userId: mockUser, filePath: "/documents" });
     assertEquals(folders.length, 1);
     assertEquals(folders[0]._id, createFolderResult._id);
   });
@@ -100,10 +104,11 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
   await t.step("createFolder action: duplicate folder name", async () => {
     console.log("--- Testing createFolder: duplicate folder name ---");
     // First, create a folder
-    await mediaManagement.createFolder({ filePath: "/images", name: "nature" });
+    await mediaManagement.createFolder({ userId: mockUser, filePath: "/images", name: "nature" });
 
     // Attempt to create another folder with the same name in the same path
     const duplicateFolderResult = await mediaManagement.createFolder({
+      userId: mockUser,
       filePath: "/images",
       name: "nature",
     });
@@ -123,6 +128,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     console.log("--- Testing move: successful move ---");
     // First, upload a file
     const uploadedFile = await mediaManagement.upload({
+      userId: mockUser,
       filePath: "/staging",
       mediaType: "jpg",
       filename: "sunset",
@@ -134,6 +140,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
 
     // Then, move the file
     const moveResult = await mediaManagement.move({
+      userId: mockUser,
       mediaId: uploadedFile._id,
       newFilePath: "/archive",
     });
@@ -142,9 +149,10 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     assertEquals(moveResult, {}); // Expect an empty object for success
 
     // Verify state change
-    const retrievedMedia = await mediaManagement._getMediaFile(
-      uploadedFile._id,
-    );
+    const retrievedMedia = await mediaManagement._getMediaFile({
+      userId: mockUser,
+      mediaId: uploadedFile._id,
+    });
     assertEquals(retrievedMedia.length, 1);
     assertEquals(retrievedMedia[0].filePath, "/archive");
     assertExists(retrievedMedia[0].updateDate); // updateDate should have been updated
@@ -154,6 +162,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     console.log("--- Testing move: media not found or not owned ---");
     const nonExistentMediaId = "non-existent-id" as ID;
     const moveResult = await mediaManagement.move({
+      userId: mockUser,
       mediaId: nonExistentMediaId,
       newFilePath: "/archive",
     });
@@ -171,6 +180,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     console.log("--- Testing delete: successful delete ---");
     // First, upload a file
     const uploadedFile = await mediaManagement.upload({
+      userId: mockUser,
       filePath: "/temp",
       mediaType: "gif",
       filename: "animation",
@@ -182,15 +192,17 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
 
     // Then, delete the file
     const deleteResult = await mediaManagement.delete({
+      userId: mockUser,
       mediaId: uploadedFile._id,
     });
     console.log("Delete Result:", JSON.stringify(deleteResult));
     assertEquals(deleteResult, {}); // Expect an empty object for success
 
     // Verify state change
-    const retrievedMedia = await mediaManagement._getMediaFile(
-      uploadedFile._id,
-    );
+    const retrievedMedia = await mediaManagement._getMediaFile({
+      userId: mockUser,
+      mediaId: uploadedFile._id,
+    });
     assertEquals(retrievedMedia.length, 0); // Should be empty
   });
 
@@ -198,6 +210,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     console.log("--- Testing delete: media not found or not owned ---");
     const nonExistentMediaId = "non-existent-id" as ID;
     const deleteResult = await mediaManagement.delete({
+      userId: mockUser,
       mediaId: nonExistentMediaId,
     });
     console.log("Delete Result (non-existent):", JSON.stringify(deleteResult));
@@ -211,6 +224,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     console.log("--- Testing updateContext: successful update ---");
     // Upload a file first
     const uploadedFile = await mediaManagement.upload({
+      userId: mockUser,
       filePath: "/images",
       mediaType: "jpg",
       filename: "scan",
@@ -225,6 +239,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
 
     // Update context
     const updateContextResult = await mediaManagement.updateContext({
+      userId: mockUser,
       mediaId: uploadedFile._id,
       extractionResult: extractionData,
     });
@@ -232,9 +247,10 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     assertEquals(updateContextResult, {}); // Expect an empty object for success
 
     // Verify state change
-    const retrievedMedia = await mediaManagement._getMediaFile(
-      uploadedFile._id,
-    );
+    const retrievedMedia = await mediaManagement._getMediaFile({
+      userId: mockUser,
+      mediaId: uploadedFile._id,
+    });
     assertEquals(retrievedMedia.length, 1);
     assertEquals(retrievedMedia[0].context, extractionData);
     assertExists(retrievedMedia[0].updateDate); // updateDate should have been updated
@@ -249,6 +265,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
       const nonExistentMediaId = "non-existent-id" as ID;
       const extractionData = { text: "This is a scanned document." };
       const updateContextResult = await mediaManagement.updateContext({
+        userId: mockUser,
         mediaId: nonExistentMediaId,
         extractionResult: extractionData,
       });
@@ -267,6 +284,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     console.log("--- Testing addTranslatedText: successful add ---");
     // Upload a file first
     const uploadedFile = await mediaManagement.upload({
+      userId: mockUser,
       filePath: "/images",
       mediaType: "jpg",
       filename: "document",
@@ -279,6 +297,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     // Add context first as translatedText depends on context (implicitly by the principle)
     const extractionData = { text: "Hello world." };
     await mediaManagement.updateContext({
+      userId: mockUser,
       mediaId: uploadedFile._id,
       extractionResult: extractionData,
     });
@@ -288,6 +307,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
 
     // Add translated text
     const addTranslatedTextResult = await mediaManagement.addTranslatedText({
+      userId: mockUser,
       mediaId: uploadedFile._id,
       translatedText: translatedData,
     });
@@ -298,9 +318,10 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     assertEquals(addTranslatedTextResult, {}); // Expect an empty object for success
 
     // Verify state change
-    const retrievedMedia = await mediaManagement._getMediaFile(
-      uploadedFile._id,
-    );
+    const retrievedMedia = await mediaManagement._getMediaFile({
+      userId: mockUser,
+      mediaId: uploadedFile._id,
+    });
     assertEquals(retrievedMedia.length, 1);
     assertEquals(retrievedMedia[0].translatedText, translatedData);
     assertExists(retrievedMedia[0].updateDate); // updateDate should have been updated
@@ -315,6 +336,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
       const nonExistentMediaId = "non-existent-id" as ID;
       const translatedData = { en: "Hello." };
       const addTranslatedTextResult = await mediaManagement.addTranslatedText({
+        userId: mockUser,
         mediaId: nonExistentMediaId,
         translatedText: translatedData,
       });
@@ -340,6 +362,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
 
       // 1. User uploads a media file
       const uploadResponse1 = await mediaManagement.upload({
+        userId: mockUser,
         filePath: "/user_files/images",
         mediaType: "jpg",
         filename: "vacation pic",
@@ -355,6 +378,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
 
       // 2. User uploads another media file
       const uploadResponse2 = await mediaManagement.upload({
+        userId: mockUser,
         filePath: "/user_files/documents",
         mediaType: "pdf",
         filename: "report",
@@ -370,6 +394,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
 
       // 3. User moves the first file to a different folder
       const moveResponse = await mediaManagement.move({
+        userId: mockUser,
         mediaId: uploadedFileId1,
         newFilePath: "/user_files/archive/photos",
       });
@@ -381,7 +406,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
       );
 
       // Verify the move
-      const movedFile = await mediaManagement._getMediaFile(uploadedFileId1);
+      const movedFile = await mediaManagement._getMediaFile({ userId: mockUser, mediaId: uploadedFileId1 });
       assertEquals(movedFile.length, 1);
       assertEquals(movedFile[0].filePath, "/user_files/archive/photos");
       console.log("Move verified.");
@@ -392,6 +417,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
         location: "Malibu",
       };
       const updateContextResponse = await mediaManagement.updateContext({
+        userId: mockUser,
         mediaId: uploadedFileId1,
         extractionResult: contextData,
       });
@@ -403,9 +429,10 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
       console.log(`Updated context for file ${uploadedFileId1}`);
 
       // Verify context update
-      const fileWithContext = await mediaManagement._getMediaFile(
-        uploadedFileId1,
-      );
+      const fileWithContext = await mediaManagement._getMediaFile({
+        userId: mockUser,
+        mediaId: uploadedFileId1,
+      });
       assertEquals(fileWithContext.length, 1);
       assertEquals(fileWithContext[0].context, contextData);
       console.log("Context update verified.");
@@ -417,6 +444,7 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
       };
       const addTranslatedTextResponse = await mediaManagement.addTranslatedText(
         {
+          userId: mockUser,
           mediaId: uploadedFileId1,
           translatedText: translatedData,
         },
@@ -429,17 +457,19 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
       console.log(`Added translated text for file ${uploadedFileId1}`);
 
       // Verify translated text addition
-      const fileWithTranslation = await mediaManagement._getMediaFile(
-        uploadedFileId1,
-      );
+      const fileWithTranslation = await mediaManagement._getMediaFile({
+        userId: mockUser,
+        mediaId: uploadedFileId1,
+      });
       assertEquals(fileWithTranslation.length, 1);
       assertEquals(fileWithTranslation[0].translatedText, translatedData);
       console.log("Translated text addition verified.");
 
       // 6. Verify the second file remains untouched and in its original location
-      const retrievedFile2 = await mediaManagement._getMediaFile(
-        uploadedFileId2,
-      );
+      const retrievedFile2 = await mediaManagement._getMediaFile({
+        userId: mockUser,
+        mediaId: uploadedFileId2,
+      });
       assertEquals(retrievedFile2.length, 1);
       assertEquals(retrievedFile2[0].filePath, "/user_files/documents");
       assertEquals(retrievedFile2[0].context, undefined);

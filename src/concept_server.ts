@@ -1,4 +1,5 @@
 import { Hono } from "jsr:@hono/hono";
+import { cors } from "jsr:@hono/hono/cors";
 import { getDb } from "@utils/database.ts";
 import { walk } from "jsr:@std/fs";
 import { parseArgs } from "jsr:@std/cli/parse-args";
@@ -24,6 +25,14 @@ async function main() {
   const [db] = await getDb();
   const app = new Hono();
 
+  // ⭐⭐⭐ ADD CORS MIDDLEWARE - ALLOWS FRONTEND TO CONNECT ⭐⭐⭐
+  app.use("/*", cors({
+    origin: "http://localhost:5173", // Your Vue frontend URL
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  }));
+
   app.get("/", (c) => c.text("Concept Server is running."));
 
   // --- Dynamic Concept Loading and Routing ---
@@ -39,13 +48,15 @@ async function main() {
     if (entry.path === CONCEPTS_DIR) continue; // Skip the root directory
 
     const conceptName = entry.name;
-    const conceptFilePath = `${entry.path}/${conceptName}Concept.ts`;
+    const conceptFilePath = `${entry.path}\\${conceptName}.ts`;
+    if (conceptName === "concepts") {
+      continue;
+    }
 
     try {
       const modulePath = toFileUrl(Deno.realPathSync(conceptFilePath)).href;
       const module = await import(modulePath);
       const ConceptClass = module.default;
-
       if (
         typeof ConceptClass !== "function" ||
         !ConceptClass.name.endsWith("Concept")
@@ -94,6 +105,7 @@ async function main() {
   }
 
   console.log(`\nServer listening on http://localhost:${PORT}`);
+  console.log(`CORS enabled for: http://localhost:5173`);
   Deno.serve({ port: PORT }, app.fetch);
 }
 

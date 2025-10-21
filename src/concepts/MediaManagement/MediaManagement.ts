@@ -38,12 +38,10 @@ const PREFIX = "MediaManagement" + ".";
 export default class MediaManagementConcept {
   mediaFiles: Collection<MediaFile>;
   folders: Collection<Folder>;
-  private readonly owner: User; // Assuming the concept is instantiated for a specific user
 
-  constructor(private readonly db: Db, owner: User) {
+  constructor(private readonly db: Db) {
     this.mediaFiles = this.db.collection(PREFIX + "mediaFiles");
     this.folders = this.db.collection(PREFIX + "folders");
-    this.owner = owner;
   }
 
   /**
@@ -58,19 +56,24 @@ export default class MediaManagementConcept {
    *   * Returns the newly created `MediaFile`.
    */
   async upload({
+    userId,
     filePath,
     mediaType,
     filename,
     relativePath, // Note: relativePath seems to be unused in the effect description but is part of the input. Assuming it might be for physical file operations not directly modeled here.
   }: {
+    userId: ID;
     filePath: string;
     mediaType: string;
     filename: string;
     relativePath: string;
-  }): Promise<MediaFile | {error: string}> {
-    // Basic validation as per requirements
-    if (!/^[a-zA-Z0-9\s]+$/.test(filename)) {
-      return { error: "Filename can only contain alphabets, numbers, and spaces." } as any;
+  }): Promise<MediaFile | { error: string }> {
+    // Basic validation - allow common filename characters including dots for extensions
+    if (!/^[a-zA-Z0-9\s._-]+$/.test(filename)) {
+      return {
+        error:
+          "Filename can only contain alphabets, numbers, spaces, dots, hyphens, and underscores.",
+      } as any;
     }
     // Assuming filePath is a conceptual path within the managed storage,
     // and we'd perform physical file operations elsewhere.
@@ -82,10 +85,10 @@ export default class MediaManagementConcept {
       filename,
       filePath,
       mediaType,
-      cloudURL: `gs://your-bucket/${this.owner}/${filePath}/${filename}`, // Example cloud URL structure
+      cloudURL: `gs://your-bucket/${userId}/${filePath}/${filename}`, // Example cloud URL structure
       uploadDate: now,
       updateDate: now,
-      owner: this.owner,
+      owner: userId,
     };
 
     await this.mediaFiles.insertOne(newMediaFile);
@@ -100,13 +103,17 @@ export default class MediaManagementConcept {
    * **effects**
    *   * Removes the `MediaFile` object from system and so user is not the owner of it anymore.
    */
-  async delete({ mediaId }: { mediaId: ID }): Promise<Empty | {error: string}> {
+  async delete(
+    { userId, mediaId }: { userId: ID; mediaId: ID },
+  ): Promise<Empty | { error: string }> {
     const result = await this.mediaFiles.deleteOne({
       _id: mediaId,
-      owner: this.owner,
+      owner: userId,
     });
     if (result.deletedCount === 0) {
-      return { error: "Media file not found or not owned by the current user." } as any;
+      return {
+        error: "Media file not found or not owned by the current user.",
+      } as any;
     }
     // In a real implementation, you would also delete the file from cloud storage.
     return {};
@@ -121,20 +128,24 @@ export default class MediaManagementConcept {
    *   * Updates the `filePath` of the `MediaFile` object corresponding to `mediaId` to reflect the new location. Physically moves the file data in app storage.
    */
   async move({
+    userId,
     mediaId,
     newFilePath,
   }: {
+    userId: ID;
     mediaId: ID;
     newFilePath: string;
-  }): Promise<Empty | {error: string}> {
+  }): Promise<Empty | { error: string }> {
     const now = new Date();
     const result = await this.mediaFiles.updateOne(
-      { _id: mediaId, owner: this.owner },
-      { $set: { filePath: newFilePath, updateDate: now } }
+      { _id: mediaId, owner: userId },
+      { $set: { filePath: newFilePath, updateDate: now } },
     );
 
     if (result.modifiedCount === 0) {
-      return { error: "Media file not found or not owned by the current user." } as any;
+      return {
+        error: "Media file not found or not owned by the current user.",
+      } as any;
     }
 
     // In a real implementation, you would also move the physical file in app storage and potentially update the cloudURL if it depends on filePath.
@@ -149,20 +160,24 @@ export default class MediaManagementConcept {
    * **effects** Creates a new folder structure within the app's managed storage.
    */
   async createFolder({
+    userId,
     filePath,
     name,
   }: {
+    userId: ID;
     filePath: string;
     name: string;
-  }): Promise<Folder | {error: string}> {
+  }): Promise<Folder | { error: string }> {
     // Basic validation: Ensure name is unique for the given filePath and owner
     const existingFolder = await this.folders.findOne({
       filePath,
       name,
-      owner: this.owner,
+      owner: userId,
     });
     if (existingFolder) {
-      return { error: "A folder with this name already exists at this location." } as any;
+      return {
+        error: "A folder with this name already exists at this location.",
+      } as any;
     }
 
     // Simplified validation for filePath (e.g., ensuring it's a conceptual path)
@@ -172,7 +187,7 @@ export default class MediaManagementConcept {
       _id: freshID(),
       filePath: filePath,
       name: name,
-      owner: this.owner,
+      owner: userId,
     };
 
     await this.folders.insertOne(newFolder);
@@ -187,22 +202,26 @@ export default class MediaManagementConcept {
    * **effects** Updates the `context` field of the `MediaFile` corresponding to `mediaId` with the provided `extractionResult`. If context field doesn't exist, create one and updates with extractionResult.
    */
   async updateContext({
+    userId,
     mediaId,
     extractionResult,
   }: {
+    userId: ID;
     mediaId: ID;
     extractionResult: Record<string, string>;
-  }): Promise<Empty | {error: string}> {
+  }): Promise<Empty | { error: string }> {
     const now = new Date();
     const result = await this.mediaFiles.updateOne(
-      { _id: mediaId, owner: this.owner },
+      { _id: mediaId, owner: userId },
       {
         $set: { context: extractionResult, updateDate: now },
-      }
+      },
     );
 
     if (result.modifiedCount === 0) {
-      return { error: "Media file not found or not owned by the current user." } as any;
+      return {
+        error: "Media file not found or not owned by the current user.",
+      } as any;
     }
     return {};
   }
@@ -215,22 +234,26 @@ export default class MediaManagementConcept {
    * **effects** Appends the `outputVersion` to the `translatedVersions` list of the `MediaFile` corresponding to `mediaId`.
    */
   async addTranslatedText({
+    userId,
     mediaId,
     translatedText,
   }: {
+    userId: ID;
     mediaId: ID;
     translatedText: Record<string, string>;
-  }): Promise<Empty | {error: string}> {
+  }): Promise<Empty | { error: string }> {
     const now = new Date();
     const result = await this.mediaFiles.updateOne(
-      { _id: mediaId, owner: this.owner },
+      { _id: mediaId, owner: userId },
       {
         $set: { translatedText: translatedText, updateDate: now },
-      }
+      },
     );
 
     if (result.modifiedCount === 0) {
-      return { error: "Media file not found or not owned by the current user." } as any;
+      return {
+        error: "Media file not found or not owned by the current user.",
+      } as any;
     }
     return {};
   }
@@ -242,9 +265,11 @@ export default class MediaManagementConcept {
    *
    * Retrieves a specific media file by its ID, ensuring it belongs to the current user.
    */
-  async _getMediaFile(mediaId: ID): Promise<MediaFile[]> {
+  async _getMediaFile(
+    { userId, mediaId }: { userId: ID; mediaId: ID },
+  ): Promise<MediaFile[]> {
     return await this.mediaFiles
-      .find({ _id: mediaId, owner: this.owner })
+      .find({ _id: mediaId, owner: userId })
       .toArray();
   }
 
@@ -253,9 +278,11 @@ export default class MediaManagementConcept {
    *
    * Lists all media files within a given directory path for the current user.
    */
-  async _listMediaFiles(filePath: string): Promise<MediaFile[]> {
+  async _listMediaFiles(
+    { userId, filePath }: { userId: ID; filePath: string },
+  ): Promise<MediaFile[]> {
     return await this.mediaFiles
-      .find({ filePath: filePath, owner: this.owner })
+      .find({ filePath: filePath, owner: userId })
       .toArray();
   }
 
@@ -264,9 +291,32 @@ export default class MediaManagementConcept {
    *
    * Lists all subfolders within a given directory path for the current user.
    */
-  async _listFolders(filePath: string): Promise<Folder[]> {
+  async _listFolders(
+    { userId, filePath }: { userId: ID; filePath: string },
+  ): Promise<Folder[]> {
     return await this.folders
-      .find({ filePath: filePath, owner: this.owner })
+      .find({ filePath: filePath, owner: userId })
       .toArray();
+  }
+
+  /**
+   * _serveMediaFile(userId: ID, mediaId: ID): Blob
+   *
+   * Serves the actual image file bytes
+   */
+  async _serveMediaFile(
+    { userId, mediaId }: { userId: ID; mediaId: ID },
+  ): Promise<Blob> {
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: mediaId,
+      owner: userId,
+    });
+    if (!mediaFile) {
+      throw new Error("Media file not found");
+    }
+
+    // Read the actual file from disk and return it
+    const fileData = await Deno.readFile(mediaFile.filePath);
+    return new Blob([fileData], { type: `image/${mediaFile.mediaType}` });
   }
 }
