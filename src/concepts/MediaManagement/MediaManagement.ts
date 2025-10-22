@@ -173,19 +173,73 @@ export default class MediaManagementConcept {
   async delete(
     { userId, mediaId }: { userId: ID; mediaId: ID },
   ): Promise<Empty | { error: string }> {
+    console.log(`🗑️ Starting cascade deletion for mediaId: ${mediaId}`);
+
     const result = await this.mediaFiles.deleteOne({
       _id: mediaId,
       owner: userId,
     });
     if (result.deletedCount === 0) {
+      console.error(`❌ Media file not found: ${mediaId}`);
       return {
         error: "Media file not found or not owned by the current user.",
       } as any;
     }
+    console.log(`✅ Deleted media file record`);
 
-    // Also delete the stored image data
-    await this.mediaStorage.deleteImage({ userId, mediaId });
-    console.log(`✅ Deleted media file and stored image data`);
+    // CASCADE DELETE 1: Delete the stored image data
+    try {
+      await this.mediaStorage.deleteImage({ userId, mediaId });
+      console.log(`✅ Deleted stored image data`);
+    } catch (err) {
+      console.warn(`⚠️ Could not delete stored image: ${err}`);
+    }
+
+    // CASCADE DELETE 2: Delete all text extraction results for this image
+    try {
+      const extractionsCollection = this.db.collection(
+        "TextExtraction.extractionResults",
+      );
+      const extractionDeleteResult = await extractionsCollection.deleteMany({
+        imagePath: mediaId,
+      });
+      console.log(
+        `✅ Deleted ${extractionDeleteResult.deletedCount} extraction results`,
+      );
+
+      // CASCADE DELETE 3: Delete all extraction locations
+      const locationsCollection = this.db.collection(
+        "TextExtraction.locations",
+      );
+      const locationDeleteResult = await locationsCollection.deleteMany({
+        extractionResultId: {
+          $in: await extractionsCollection.find({ imagePath: mediaId })
+            .toArray().then((arr) => arr.map((e) => e._id)),
+        },
+      });
+      console.log(
+        `✅ Deleted ${locationDeleteResult.deletedCount} extraction locations`,
+      );
+    } catch (err) {
+      console.warn(`⚠️ Could not delete extractions: ${err}`);
+    }
+
+    // CASCADE DELETE 4: Delete all translations for this image
+    try {
+      const translationsCollection = this.db.collection(
+        "Translation.translations",
+      );
+      const translationDeleteResult = await translationsCollection.deleteMany({
+        imagePath: mediaId,
+      });
+      console.log(
+        `✅ Deleted ${translationDeleteResult.deletedCount} translations`,
+      );
+    } catch (err) {
+      console.warn(`⚠️ Could not delete translations: ${err}`);
+    }
+
+    console.log(`🎉 Cascade deletion complete for mediaId: ${mediaId}`);
 
     return {};
   }
@@ -379,16 +433,28 @@ export default class MediaManagementConcept {
   async _serveImage(
     { userId, mediaId }: { userId: ID; mediaId: ID },
   ): Promise<{ data: Uint8Array; contentType: string } | { error: string }> {
+    console.log(
+      `🎬 _serveImage called for userId: ${userId}, mediaId: ${mediaId}`,
+    );
+
     // Get the media file metadata
     const mediaFiles = await this.mediaFiles
       .find({ _id: mediaId, owner: userId })
       .toArray();
 
+    console.log(`📊 Found ${mediaFiles.length} media files for query`);
+
     if (mediaFiles.length === 0) {
+      console.error(
+        `❌ Media file not found: mediaId=${mediaId}, userId=${userId}`,
+      );
       return { error: "Media file not found or access denied" } as any;
     }
 
     const mediaFile = mediaFiles[0];
+    console.log(
+      `📄 Media file: ${mediaFile.filename}, type: ${mediaFile.mediaType}`,
+    );
 
     try {
       // Try to get image from database first (faster, more reliable)
@@ -400,6 +466,14 @@ export default class MediaManagementConcept {
         mediaId,
       });
 
+      console.log(
+        `🔍 MediaStorage query result:`,
+        storedImage ? "Found" : "Not found",
+        storedImage && "error" in storedImage
+          ? `Error: ${storedImage.error}`
+          : "",
+      );
+
       if (storedImage && !("error" in storedImage)) {
         console.log(
           `✅ Serving image from database (${storedImage.size} bytes)`,
@@ -408,21 +482,41 @@ export default class MediaManagementConcept {
         // Convert base64 to binary
         // Remove data URI prefix if present (e.g., "data:image/jpeg;base64,")
         let base64Data = storedImage.imageData;
+        const originalLength = base64Data.length;
+
         if (base64Data.startsWith("data:")) {
+          console.log(`🔧 Stripping data URI prefix from base64`);
           base64Data = base64Data.split(",")[1];
         }
 
-        console.log(`🔢 Decoding base64 data (${base64Data.length} chars)`);
-        const binaryData = Uint8Array.from(
-          atob(base64Data),
-          (c) => c.charCodeAt(0),
+        console.log(
+          `🔢 Decoding base64 data (original: ${originalLength} chars, stripped: ${base64Data.length} chars)`,
         );
-        console.log(`✅ Binary data created (${binaryData.length} bytes)`);
 
-        return {
-          data: binaryData,
-          contentType: storedImage.mimeType,
-        };
+        try {
+          const binaryData = Uint8Array.from(
+            atob(base64Data),
+            (c) => c.charCodeAt(0),
+          );
+          console.log(
+            `✅ Binary data created successfully (${binaryData.length} bytes)`,
+          );
+          console.log(`✅ Returning with contentType: ${storedImage.mimeType}`);
+
+          return {
+            data: binaryData,
+            contentType: storedImage.mimeType,
+          };
+        } catch (decodeError) {
+          console.error(`❌ Error decoding base64:`, decodeError);
+          console.error(
+            `   First 100 chars of base64:`,
+            base64Data.substring(0, 100),
+          );
+          return {
+            error: `Failed to decode image data: ${decodeError.message}`,
+          } as any;
+        }
       }
 
       // Fallback: try to read from disk (for old files that weren't stored in DB)

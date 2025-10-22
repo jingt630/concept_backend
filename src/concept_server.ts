@@ -91,6 +91,27 @@ async function main() {
           try {
             const body = await c.req.json().catch(() => ({})); // Handle empty body
             const result = await instance[methodName](body);
+
+            // Check if this is a binary file response (for image serving)
+            // Must check for Uint8Array specifically, not just truthy data
+            if (
+              result && result.data instanceof Uint8Array && result.contentType
+            ) {
+              console.log(
+                `📦 Returning binary response: ${result.data.length} bytes, type: ${result.contentType}`,
+              );
+
+              // Return binary data with appropriate content type
+              return new Response(result.data, {
+                headers: {
+                  "Content-Type": result.contentType,
+                  "Access-Control-Allow-Origin": "http://localhost:5173",
+                  "Cache-Control": "public, max-age=3600",
+                },
+              });
+            }
+
+            // Regular JSON response
             return c.json(result);
           } catch (e) {
             console.error(`Error in ${conceptName}.${methodName}:`, e);
