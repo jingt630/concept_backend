@@ -1,5 +1,6 @@
 import { testDb } from "@utils/database.ts";
 import TextExtractionConcept from "./TextExtraction.ts";
+import MediaManagementConcept from "../MediaManagement/MediaManagement.ts";
 import { ObjectId } from "npm:mongodb";
 import { ID } from "@utils/types.ts";
 import { assertEquals, assertFalse } from "jsr:@std/assert";

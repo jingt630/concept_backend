@@ -1,5 +1,7 @@
 import { Collection, Db, ObjectId } from "npm:mongodb";
 import { Empty, ID } from "@utils/types.ts";
+import { freshID } from "@utils/database.ts";
+import { GeminiLLM } from "../../../gemini-llm.ts";
 
 // Declare collection prefix, use concept name
 const PREFIX = "TextExtraction" + ".";
@@ -41,73 +43,272 @@ interface Locations {
 export default class TextExtractionConcept {
   extractionResults: Collection<ExtractionResults>;
   locations: Collection<Locations>;
+  mediaFiles: Collection<any>; // Reference to MediaManagement collection
+  private geminiLLM: GeminiLLM;
 
   constructor(private readonly db: Db) {
     this.extractionResults = this.db.collection(PREFIX + "extractionResults");
     this.locations = this.db.collection(PREFIX + "locations");
+    this.mediaFiles = this.db.collection("MediaManagement.mediaFiles");
+    this.geminiLLM = new GeminiLLM();
   }
 
   /**
-   * extractTextFromMedia (image: FilePath): (result: ExtractionResult)
+   * Get image dimensions from file
+   */
+  private async getImageDimensions(
+    filePath: string,
+  ): Promise<{ width: number; height: number }> {
+    try {
+      // For simplicity, we'll use default dimensions if we can't determine
+      // In a real implementation, you'd use an image library to read dimensions
+      return { width: 1024, height: 768 }; // Default dimensions
+    } catch (error) {
+      console.warn("⚠️ Could not determine image dimensions, using defaults");
+      return { width: 1024, height: 768 };
+    }
+  }
+
+  /**
+   * Parse numbered text list from Gemini response
+   */
+  private parseNumberedTextList(response: string): string[] {
+    if (!response || response === "No text found") return [];
+
+    const items: Array<{ idx: number; text: string }> = [];
+    const lines = response.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      // Skip the final summary line
+      if (/^Number of text block/i.test(line)) continue;
+
+      // Match "1: text", "1. text", "1) text"
+      const m = line.match(/^\s*(\d+)\s*[:\.\)]\s*(.*)$/);
+      if (!m) continue;
+
+      const idx = parseInt(m[1], 10);
+      let text = m[2].trim();
+
+      // Remove trailing coordinate parenthesis
+      text = text.replace(/\s*\([^)]*(from|to)[^)]*\)\s*$/i, "").trim();
+      text = text.replace(/\s*\([^)]*\)\s*$/, "").trim();
+
+      // Strip surrounding quotes and HTML-like tags
+      text = text.replace(/^["'""''\s]+|["'""''\s]+$/g, "").replace(
+        /<\/?[^>]+(>|$)/g,
+        "",
+      ).trim();
+
+      if (text.length > 0) items.push({ idx, text });
+    }
+
+    if (items.length === 0) return [];
+
+    items.sort((a, b) => a.idx - b.idx);
+    return items.map((p) => p.text);
+  }
+
+  /**
+   * Parse coordinates list from Gemini response
+   */
+  private parseCoordinatesList(
+    response: string,
+  ): Array<
+    { fromCoord: [Coordinate, Coordinate]; toCoord: [Coordinate, Coordinate] }
+  > {
+    const coordRegex =
+      /\(\s*from:\s*\{x:(-?\d+),\s*y:(-?\d+)\},\s*to:\s*\{x:(-?\d+),\s*y:(-?\d+)\}\s*\)/g;
+
+    const matches = [...response.matchAll(coordRegex)];
+    const results = matches.map((match) => ({
+      fromCoord: [parseInt(match[1], 10), parseInt(match[2], 10)] as [
+        Coordinate,
+        Coordinate,
+      ],
+      toCoord: [parseInt(match[3], 10), parseInt(match[4], 10)] as [
+        Coordinate,
+        Coordinate,
+      ],
+    }));
+
+    return results;
+  }
+
+  /**
+   * Helper function to get full file path
+   */
+  private getImagePath(userId: ID, mediaFile: any): string {
+    // Build path and remove any double slashes
+    const rawPath =
+      `./uploads/${userId}${mediaFile.filePath}/${mediaFile.filename}`;
+
+    // Replace multiple slashes with single slash (but keep ./ at the beginning)
+    const normalizedPath = rawPath.replace(/([^:]\/)\/+/g, "$1");
+
+    console.log(`📂 Constructed path: ${normalizedPath}`);
+    return normalizedPath;
+  }
+
+  /**
+   * extractTextFromMedia (userId: ID, mediaId: ID, prompt?: string): (result: ExtractionResult)
    *
-   * **requires**: `image` exists in application and accessible.
+   * **requires**: `mediaId` exists in MediaManagement and belongs to `userId`.
    *
-   * **effects**: Creates a new `ExtractionResult` associated with the `image`, with the same `imagePath` string stored. `extractedText` will be the text the AI recognizes at `position`, and an unique `textId` is assigned out of all `ExtractionResult`s with the same `imagePath` because the same image can have many same words at different locations.
+   * **effects**: Uses AI (Google Gemini) to extract text from the image with coordinates. Creates multiple `ExtractionResult` objects for each text block found.
    */
   async extractTextFromMedia({
-    image,
+    userId,
+    mediaId,
   }: {
-    image: FilePath;
-  }): Promise<{ result: ExtractionResult }> {
-    const existingExtractions = await this.extractionResults
-      .find({ imagePath: image })
-      .toArray();
-    const textId = `${image}_${existingExtractions.length}`; // Simple unique ID generation
-    const newExtractionResultId = new ObjectId().toString() as ExtractionResult;
-
-    // For simplicity, we'll create a placeholder location.
-    // In a real system, AI would determine this.
-    const newLocationId = new ObjectId().toString() as Location;
-    const placeholderFromCoord: [Coordinate, Coordinate] = [0, 0];
-    const placeholderToCoord: [Coordinate, Coordinate] = [100, 100];
-
-    await this.locations.insertOne({
-      _id: newLocationId,
-      extractionResultId: newExtractionResultId,
-      fromCoord: placeholderFromCoord,
-      toCoord: placeholderToCoord,
+    userId: ID;
+    mediaId: ID;
+  }): Promise<{ results: ExtractionResult[] } | { error: string }> {
+    // Get the media file from MediaManagement
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: mediaId,
+      owner: userId,
     });
 
-    // Placeholder for extracted text, AI would determine this
-    const placeholderExtractedText = "Placeholder extracted text for " + image;
+    if (!mediaFile) {
+      return { error: "Media file not found or access denied" };
+    }
 
-    await this.extractionResults.insertOne({
-      _id: newExtractionResultId,
-      imagePath: image,
-      extractedText: placeholderExtractedText,
-      position: newLocationId,
-      textId: textId,
-    });
+    try {
+      console.log(
+        `🤖 Starting Gemini AI text extraction for: ${mediaFile.filename}`,
+      );
 
-    return { result: newExtractionResultId };
+      // Get full image path
+      const imagePath = this.getImagePath(userId, mediaFile);
+
+      // Get image dimensions
+      const dimensions = await this.getImageDimensions(imagePath);
+      console.log(
+        `📐 Image dimensions: ${dimensions.width}x${dimensions.height}`,
+      );
+
+      // Build the OCR prompt
+      const ocrPrompt =
+        `You are an OCR assistant. Read all visible text in the given image
+and return only the readable text. Do not describe the image or repeat the base64 data.
+Return plain text only, formatted for readability by numbering each text block u recognize.
+Also keep track of the position of each text block in the image, using coordinates.
+Coordinates are given as (x,y) pairs, where (0,0) is the top-left corner of the image.
+The 'from' coordinate is the top-left corner of the text block, and the 'to' coordinate is
+the bottom-right corner. The coordinates should be integers representing pixel positions in the image
+relative to the image dimensions. If no text can be found, return "No text found". When two or more
+short text segments appear close together (within the same logical phrase or line group), merge them
+into a single text block rather than splitting them. Treat small vertical spacing as part of the same
+block if the text forms a continuous sentence or title.
+Do not add, infer, or search for any information that is not explicitly readable.
+Do not use external knowledge or guess missing words based on what the image might represent.
+Apply the same grouping logic for all languages — English, Chinese, or others — merging vertically or
+horizontally aligned characters that form a single title or phrase.
+When estimating coordinates, ensure that (from) and (to) precisely cover only the visible text area.
+Avoid random or uniform coordinates that do not match the actual layout.
+Keep numeric elements together with their associated words (e.g., "2025" and "Festival")
+in a single text block whenever they belong to the same phrase or visual line.
+The incoming image's dimensions is ${dimensions.width}x${dimensions.height}. Label textblocks with accurate coordinates
+that is relevant to the image's dimensions.
+Strictly follow this format, with no extra commentary:
+An example response format:
+1: <text> (from: {x:12, y:34}, to: {x:56, y:78})
+2: <text> (from: {x:90, y:12}, to: {x:34, y:56})
+...
+N: <text> (from: {x:A, y:B}, to: {x:C, y:D})
+Number of text blocks: N`;
+
+      // Call Gemini AI
+      const aiResponse = await this.geminiLLM.executeLLM(ocrPrompt, imagePath);
+      console.log(`✅ Gemini extraction complete`);
+
+      // Parse the response
+      const textBlocks = this.parseNumberedTextList(aiResponse);
+      const coordinates = this.parseCoordinatesList(aiResponse);
+
+      console.log(`📝 Found ${textBlocks.length} text blocks`);
+
+      // Create extraction results for each text block
+      const extractionIds: ExtractionResult[] = [];
+
+      for (let i = 0; i < textBlocks.length; i++) {
+        const existingExtractions = await this.extractionResults
+          .find({ imagePath: mediaId })
+          .toArray();
+        const textId = `${mediaId}_${existingExtractions.length}`;
+        const newExtractionResultId = freshID() as ExtractionResult;
+
+        // Get coordinates or use defaults
+        const coords = coordinates[i] || {
+          fromCoord: [0, 0] as [Coordinate, Coordinate],
+          toCoord: [100, 100] as [Coordinate, Coordinate],
+        };
+
+        // Create location
+        const newLocationId = freshID() as Location;
+        await this.locations.insertOne({
+          _id: newLocationId,
+          extractionResultId: newExtractionResultId,
+          fromCoord: coords.fromCoord,
+          toCoord: coords.toCoord,
+        });
+
+        // Store the extraction result
+        await this.extractionResults.insertOne({
+          _id: newExtractionResultId,
+          imagePath: mediaId,
+          extractedText: textBlocks[i],
+          position: newLocationId,
+          textId: textId,
+        });
+
+        extractionIds.push(newExtractionResultId);
+      }
+
+      console.log(`✅ Created ${extractionIds.length} extraction records`);
+      return { results: extractionIds };
+    } catch (error) {
+      console.error("❌ Error in extractTextFromMedia:", error);
+      return { error: "error.message" };
+    }
   }
 
   /**
-   * editExtractText (extractedText: ExtractionResult, newText: String)
+   * editExtractText (userId: ID, extractionId: ExtractionResult, newText: String)
    *
-   * **requires**: `extractedText` exists.
+   * **requires**: `extractionId` exists and belongs to user.
    *
    * **effects**: Modifies `extractedText` in the `ExtractionResult` to `newText`.
    */
   async editExtractText({
-    extractedText,
+    userId,
+    extractionId,
     newText,
   }: {
-    extractedText: ExtractionResult;
+    userId: ID;
+    extractionId: ExtractionResult;
     newText: string;
   }): Promise<Empty | { error: string }> {
+    // Verify ownership through mediaFile
+    const extraction = await this.extractionResults.findOne({
+      _id: extractionId,
+    });
+    if (!extraction) {
+      return { error: "ExtractionResult not found" };
+    }
+
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: extraction.imagePath,
+      owner: userId,
+    });
+
+    if (!mediaFile) {
+      return { error: "Access denied" };
+    }
+
     const result = await this.extractionResults.updateOne(
-      { _id: extractedText },
+      { _id: extractionId },
       { $set: { extractedText: newText } },
     );
 
@@ -118,18 +319,20 @@ export default class TextExtractionConcept {
   }
 
   /**
-   * editLocation (extractedText: ExtractionResult, fromCoord: Coordinate, toCoord: Coordinate)
+   * editLocation (userId: ID, extractionId: ExtractionResult, fromCoord: Coordinate, toCoord: Coordinate)
    *
-   * **requires**: `extractedText` exists. The coordinates do not include negative numbers.
+   * **requires**: `extractionId` exists and belongs to user. The coordinates do not include negative numbers.
    *
-   * **effects**: Changes the `position` of `extractedText` to a new `Location` defined by `fromCoord` and `toCoord`, which specifies the area of the image that the `extractedText` occupies if a rectangle is drawn from `fromCoord` to `toCoord`.
+   * **effects**: Changes the `position` of extraction to a new `Location` defined by `fromCoord` and `toCoord`.
    */
   async editLocation({
-    extractedText,
+    userId,
+    extractionId,
     fromCoord,
     toCoord,
   }: {
-    extractedText: ExtractionResult;
+    userId: ID;
+    extractionId: ExtractionResult;
     fromCoord: [Coordinate, Coordinate];
     toCoord: [Coordinate, Coordinate];
   }): Promise<Empty | { error: string }> {
@@ -141,11 +344,21 @@ export default class TextExtractionConcept {
     }
 
     const extraction = await this.extractionResults.findOne({
-      _id: extractedText,
+      _id: extractionId,
     });
 
     if (!extraction) {
       return { error: "ExtractionResult not found" };
+    }
+
+    // Verify ownership
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: extraction.imagePath,
+      owner: userId,
+    });
+
+    if (!mediaFile) {
+      return { error: "Access denied" };
     }
 
     await this.locations.updateOne(
@@ -157,21 +370,40 @@ export default class TextExtractionConcept {
   }
 
   /**
-   * addExtractionTxt (media: FilePath, fromCoord: Coordinate, toCoord: Coordinate): (result: ExtractionResult)
+   * addExtractionTxt (userId: ID, mediaId: ID, text: string, location: object): (result: ExtractionResult)
    *
-   * **requires**: `media` exists. Numbers are non-negative.
+   * **requires**: `mediaId` exists and belongs to user. Coordinates are non-negative.
    *
-   * **effects**: Creates a new `ExtractionResult` with the same `media`, initializes `extractedText` as empty, assigns an unique `textId` based on the `filePath`, and sets the `position` created from the two given coordinates.
+   * **effects**: Creates a new `ExtractionResult` with the given text and location.
    */
   async addExtractionTxt({
-    media,
-    fromCoord,
-    toCoord,
+    userId,
+    mediaId,
+    text,
+    location,
   }: {
-    media: FilePath;
-    fromCoord: [Coordinate, Coordinate];
-    toCoord: [Coordinate, Coordinate];
+    userId: ID;
+    mediaId: ID;
+    text: string;
+    location: { x: number; y: number; width: number; height: number };
   }): Promise<{ result: ExtractionResult } | { error: string }> {
+    // Verify ownership
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: mediaId,
+      owner: userId,
+    });
+
+    if (!mediaFile) {
+      return { error: "Media file not found or access denied" };
+    }
+
+    // Convert location to coordinates
+    const fromCoord: [Coordinate, Coordinate] = [location.x, location.y];
+    const toCoord: [Coordinate, Coordinate] = [
+      location.x + location.width,
+      location.y + location.height,
+    ];
+
     if (
       fromCoord.some((c) => c < 0) ||
       toCoord.some((c) => c < 0)
@@ -180,12 +412,12 @@ export default class TextExtractionConcept {
     }
 
     const existingExtractions = await this.extractionResults
-      .find({ imagePath: media })
+      .find({ imagePath: mediaId })
       .toArray();
-    const textId = `${media}_${existingExtractions.length}`; // Simple unique ID generation
-    const newExtractionResultId = new ObjectId().toString() as ExtractionResult;
+    const textId = `${mediaId}_${existingExtractions.length}`;
+    const newExtractionResultId = freshID() as ExtractionResult;
 
-    const newLocationId = new ObjectId().toString() as Location;
+    const newLocationId = freshID() as Location;
     await this.locations.insertOne({
       _id: newLocationId,
       extractionResultId: newExtractionResultId,
@@ -195,8 +427,8 @@ export default class TextExtractionConcept {
 
     await this.extractionResults.insertOne({
       _id: newExtractionResultId,
-      imagePath: media,
-      extractedText: "", // Initializes extractedText as empty
+      imagePath: mediaId,
+      extractedText: text,
       position: newLocationId,
       textId: textId,
     });
@@ -205,29 +437,35 @@ export default class TextExtractionConcept {
   }
 
   /**
-   * deleteExtraction (textId: String, imagePath: FilePath)
+   * deleteExtraction (userId: ID, extractionId: ExtractionResult)
    *
-   * **requires**: `textId` exists in the `imagePath`.
+   * **requires**: `extractionId` exists and belongs to user.
    *
-   * **effects**: Removes the `ExtractionResult` with the specified `textId`.
+   * **effects**: Removes the `ExtractionResult` and its associated location.
    */
   async deleteExtraction({
-    textId,
-    imagePath,
+    userId,
+    extractionId,
   }: {
-    textId: TextId;
-    imagePath: FilePath;
+    userId: ID;
+    extractionId: ExtractionResult;
   }): Promise<Empty | { error: string }> {
     const extractionResult = await this.extractionResults.findOne({
-      textId: textId,
-      imagePath: imagePath,
+      _id: extractionId,
     });
 
     if (!extractionResult) {
-      return {
-        error:
-          "ExtractionResult not found with the given textId and imagePath.",
-      };
+      return { error: "ExtractionResult not found" };
+    }
+
+    // Verify ownership
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: extractionResult.imagePath,
+      owner: userId,
+    });
+
+    if (!mediaFile) {
+      return { error: "Access denied" };
     }
 
     await this.locations.deleteOne({
@@ -241,33 +479,63 @@ export default class TextExtractionConcept {
   // --- Helper Queries (for testing and verification) ---
 
   /**
-   * _getExtractionResultsForImage (imagePath: FilePath): (results: ExtractionResults)
-   * Returns all extraction results for a given image path.
+   * _getExtractionResultsForImage (userId: ID, mediaId: ID): ExtractionResults[]
+   * Returns all extraction results for a given media file.
    */
   async _getExtractionResultsForImage({
-    imagePath,
+    userId,
+    mediaId,
   }: {
-    imagePath: FilePath;
-  }): Promise<{ results: ExtractionResults[] }> {
-    const results = await this.extractionResults.find({ imagePath }).toArray();
-    // The actual implementation needs to fetch associated location data if needed.
-    // For simplicity, we return the raw extraction result documents here.
-    // In a real scenario, you might want to join or fetch related location data.
-    return { results: results };
+    userId: ID;
+    mediaId: ID;
+  }): Promise<ExtractionResults[] | { error: string }> {
+    // Verify ownership
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: mediaId,
+      owner: userId,
+    });
+
+    if (!mediaFile) {
+      console.log("media requested for the user isn't found");
+      return { error: "Media file not found or access denied" } as any;
+    }
+
+    const results = await this.extractionResults.find({ imagePath: mediaId })
+      .toArray();
+    return results;
   }
 
   /**
-   * _getLocationForExtraction (extractionResultId: ExtractionResult): (location: Locations)
+   * _getLocationForExtraction (userId: ID, extractionResultId: ExtractionResult): Locations[]
    * Returns the location details for a specific extraction result.
    */
   async _getLocationForExtraction({
+    userId,
     extractionResultId,
   }: {
+    userId: ID;
     extractionResultId: ExtractionResult;
-  }): Promise<{ location: Locations[] }> {
+  }): Promise<Locations[] | { error: string }> {
+    // Verify ownership through extraction -> mediaFile
+    const extraction = await this.extractionResults.findOne({
+      _id: extractionResultId,
+    });
+    if (!extraction) {
+      return { error: "Extraction not found" } as any;
+    }
+
+    const mediaFile = await this.mediaFiles.findOne({
+      _id: extraction.imagePath,
+      owner: userId,
+    });
+
+    if (!mediaFile) {
+      return { error: "Access denied" } as any;
+    }
+
     const location = await this.locations.find({
       extractionResultId: extractionResultId,
     }).toArray();
-    return { location: location };
+    return location;
   }
 }

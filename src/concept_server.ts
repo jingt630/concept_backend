@@ -26,12 +26,15 @@ async function main() {
   const app = new Hono();
 
   // ⭐⭐⭐ ADD CORS MIDDLEWARE - ALLOWS FRONTEND TO CONNECT ⭐⭐⭐
-  app.use("/*", cors({
-    origin: "http://localhost:5173", // Your Vue frontend URL
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  }));
+  app.use(
+    "/*",
+    cors({
+      origin: "http://localhost:5173", // Your Vue frontend URL
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+      credentials: true,
+    }),
+  );
 
   app.get("/", (c) => c.text("Concept Server is running."));
 
