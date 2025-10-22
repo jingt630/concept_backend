@@ -132,6 +132,40 @@ Translation:`;
     }
   }
 
+   /**
+   * deleteTranslation (userId: ID, translationId: TransTextId)
+   *
+   * **requires**: `translationId` exists.
+   *
+   * **effects**: Deletes the translation from the database.
+   */
+  async deleteTranslation({
+    userId,
+    translationId,
+  }: {
+    userId: ID;
+    translationId: TransTextId;
+  }): Promise<Empty | { error: string }> {
+    try {
+      console.log(`🗑️ Deleting translation: ${translationId}`);
+      const result = await this.translations.deleteOne({
+        _id: translationId,
+      });
+
+      if (result.deletedCount === 0) {
+        console.error(`❌ Translation not found: ${translationId}`);
+        return { error: `Translation with ID ${translationId} not found.` };
+      }
+
+      console.log(`✅ Translation deleted successfully: ${translationId}`);
+      return {};
+    } catch (error) {
+      console.error("❌ Error deleting translation:", error);
+      return { error: (error as Error).message };
+    }
+  }
+
+
   /**
    * changeLanguage (translation: Translation, newTargetLang: String)
    *

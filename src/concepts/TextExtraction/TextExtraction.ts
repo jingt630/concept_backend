@@ -307,6 +307,9 @@ Number of text blocks: N`;
       return { error: "Access denied" };
     }
 
+    const oldText = extraction.extractedText;
+
+    // Update the extraction text
     const result = await this.extractionResults.updateOne(
       { _id: extractionId },
       { $set: { extractedText: newText } },
@@ -315,7 +318,87 @@ Number of text blocks: N`;
     if (result.matchedCount === 0) {
       return { error: "ExtractionResult not found" };
     }
+
+    console.log(`✅ Updated extraction text from "${oldText}" to "${newText}"`);
+
+    // AUTO-SYNC: Update all existing translations for this text
+    if (extraction.textId) {
+      console.log(`🔄 Auto-syncing translations for textId: ${extraction.textId}`);
+      await this.syncTranslationsForText(extraction.textId, newText);
+    }
+
     return {};
+  }
+
+  /**
+   * syncTranslationsForText - Auto-updates all translations when original text changes
+   *
+   * @param textId - The textId of the extraction
+   * @param newText - The new original text
+   */
+  private async syncTranslationsForText(textId: string, newText: string): Promise<void> {
+    try {
+      const translationsCollection = this.db.collection("Translation.translations");
+
+      // Find all translations for this textId
+      const translations = await translationsCollection.find({
+        originalTextId: textId
+      }).toArray();
+
+      if (translations.length === 0) {
+        console.log(`ℹ️ No translations found for textId: ${textId}, skipping sync`);
+        return;
+      }
+
+      console.log(`🔍 Found ${translations.length} translations to sync`);
+
+      // Language mapping for better prompts
+      const languageNames: Record<string, string> = {
+        'en': 'English',
+        'es': 'Spanish',
+        'zh': 'Chinese',
+        'ja': 'Japanese'
+      };
+
+      // Re-translate for each existing translation
+      for (const translation of translations) {
+        const targetLanguageName = languageNames[translation.targetLanguage] || translation.targetLanguage;
+
+        console.log(`🌐 Re-translating to ${targetLanguageName}...`);
+
+        const prompt = `You are a professional translator. Translate the following text to ${targetLanguageName}.
+
+Original text: "${newText}"
+
+Requirements:
+- Provide ONLY the translated text
+- No explanations or notes
+- Maintain the original meaning and tone
+- If it's already in ${targetLanguageName}, just return the original text
+
+Translation:`;
+
+        try {
+          const translatedText = await this.geminiLLM.executeLLM(prompt);
+
+          // Update the translation
+          await translationsCollection.updateOne(
+            { _id: translation._id },
+            { $set: { translatedText: translatedText.trim() } }
+          );
+
+          console.log(`✅ Updated ${translation.targetLanguage} translation: "${translatedText.trim()}"`);
+        } catch (error) {
+          console.error(`❌ Failed to re-translate to ${translation.targetLanguage}:`, error);
+          // Continue with other translations even if one fails
+        }
+      }
+
+      console.log(`🎉 Translation sync complete for textId: ${textId}`);
+    } catch (error) {
+      console.error(`❌ Error syncing translations:`, error);
+      // Don't throw - we don't want to fail the edit if sync fails
+    }
   }
 
   /**
