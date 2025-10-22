@@ -1,6 +1,7 @@
 import { Collection, Db, ObjectId } from "npm:mongodb";
 import { Empty, ID } from "@utils/types.ts";
 import { freshID } from "@utils/database.ts";
+import MediaStorageConcept from "./MediaStorage.ts";
 
 // Generic types of this concept
 type User = ID;
@@ -38,19 +39,22 @@ const PREFIX = "MediaManagement" + ".";
 export default class MediaManagementConcept {
   mediaFiles: Collection<MediaFile>;
   folders: Collection<Folder>;
+  private mediaStorage: MediaStorageConcept;
 
   constructor(private readonly db: Db) {
     this.mediaFiles = this.db.collection(PREFIX + "mediaFiles");
     this.folders = this.db.collection(PREFIX + "folders");
+    this.mediaStorage = new MediaStorageConcept(db);
   }
 
   /**
-   * upload(filePath: String, mediaType: String, filename: String, relativePath: String): MediaFile
+   * upload(filePath: String, mediaType: String, filename: String, relativePath: String, fileData?: String): MediaFile
    *
    * **requires** `filename` is alphabets and numbers and space only. `filePath` specifies a valid path within the app's managed storage. `relativePath` is a valid pathway on the user's computer and has the `mediaType`.
    *
    * **effects**
    *   * Creates a new `MediaFile` object with a unique `id`, the provided `filename`, `filePath` (inside the app folder in the user's computer), `mediaType`, `uploadDate`, and initiate `updateDate` as the same date the file is uploaded.
+   *   * If fileData is provided (base64), saves the actual file to disk.
    *   * Initializes `context` to `None` and `translatedVersions` to `None`.
    *   * The owner of the MedialFile is user.
    *   * Returns the newly created `MediaFile`.
@@ -60,13 +64,15 @@ export default class MediaManagementConcept {
     filePath,
     mediaType,
     filename,
-    relativePath, // Note: relativePath seems to be unused in the effect description but is part of the input. Assuming it might be for physical file operations not directly modeled here.
+    relativePath,
+    fileData,
   }: {
     userId: ID;
     filePath: string;
     mediaType: string;
     filename: string;
     relativePath: string;
+    fileData?: string; // Base64 encoded file data
   }): Promise<MediaFile | { error: string }> {
     // Basic validation - allow common filename characters including dots for extensions
     if (!/^[a-zA-Z0-9\s._-]+$/.test(filename)) {
@@ -75,9 +81,15 @@ export default class MediaManagementConcept {
           "Filename can only contain alphabets, numbers, spaces, dots, hyphens, and underscores.",
       } as any;
     }
-    // Assuming filePath is a conceptual path within the managed storage,
-    // and we'd perform physical file operations elsewhere.
-    // For this model, we store the conceptual filePath.
+
+    console.log(`📤 Upload starting for: ${filename}`);
+    console.log(`   - User: ${userId}`);
+    console.log(`   - Path: ${filePath}`);
+    console.log(`   - Type: ${mediaType}`);
+    console.log(`   - Has file data: ${!!fileData}`);
+    if (fileData) {
+      console.log(`   - File data length: ${fileData.length} chars`);
+    }
 
     const now = new Date();
     const newMediaFile: MediaFile = {
@@ -91,7 +103,62 @@ export default class MediaManagementConcept {
       owner: userId,
     };
 
+    // Save the actual file to disk if fileData is provided
+    if (fileData) {
+      try {
+        // Create directory structure: ./uploads/{userId}/{filePath}/
+        // Normalize path to avoid double slashes
+        const rawStorageDir = `./uploads/${userId}${filePath}`;
+        const storageDir = rawStorageDir.replace(/([^:]\/)\/+/g, "$1");
+        console.log(`📁 Creating directory: ${storageDir}`);
+        await Deno.mkdir(storageDir, { recursive: true });
+
+        // Decode base64 and save file
+        const base64Data = fileData.replace(/^data:image\/\w+;base64,/, "");
+        console.log(`🔢 Decoded base64 length: ${base64Data.length}`);
+
+        const fileBytes = Uint8Array.from(
+          atob(base64Data),
+          (c) => c.charCodeAt(0),
+        );
+        console.log(`📦 File bytes: ${fileBytes.length} bytes`);
+
+        const fullPath = `${storageDir}/${filename}`;
+        await Deno.writeFile(fullPath, fileBytes);
+        console.log(`✅ File saved to disk: ${fullPath}`);
+
+        // Verify file was saved
+        try {
+          const stat = await Deno.stat(fullPath);
+          console.log(`✅ File verified on disk: ${stat.size} bytes`);
+        } catch (statErr) {
+          console.error(`❌ Could not verify file: ${statErr}`);
+        }
+      } catch (err) {
+        console.error("❌ Error saving file to disk:", err);
+        return { error: `Failed to save file` } as any;
+      }
+    } else {
+      console.warn(
+        `⚠️ WARNING: No fileData provided! File will NOT be saved to disk.`,
+      );
+    }
+
     await this.mediaFiles.insertOne(newMediaFile);
+    console.log(`✅ Database record created: ${newMediaFile._id}`);
+
+    // Also store image data in database for preview
+    if (fileData) {
+      const mimeType = `image/${mediaType}`;
+      await this.mediaStorage.storeImage({
+        userId,
+        mediaId: newMediaFile._id,
+        imageData: fileData,
+        mimeType,
+      });
+      console.log(`✅ Image data stored in database for preview`);
+    }
+
     return newMediaFile;
   }
 
@@ -115,7 +182,11 @@ export default class MediaManagementConcept {
         error: "Media file not found or not owned by the current user.",
       } as any;
     }
-    // In a real implementation, you would also delete the file from cloud storage.
+
+    // Also delete the stored image data
+    await this.mediaStorage.deleteImage({ userId, mediaId });
+    console.log(`✅ Deleted media file and stored image data`);
+
     return {};
   }
 
@@ -300,23 +371,87 @@ export default class MediaManagementConcept {
   }
 
   /**
-   * _serveMediaFile(userId: ID, mediaId: ID): Blob
+   * _serveImage(userId: ID, mediaId: ID): ImageData
    *
-   * Serves the actual image file bytes
+   * Serves the actual image file for preview/display.
+   * Returns the file bytes and content type.
    */
-  async _serveMediaFile(
+  async _serveImage(
     { userId, mediaId }: { userId: ID; mediaId: ID },
-  ): Promise<Blob> {
-    const mediaFile = await this.mediaFiles.findOne({
-      _id: mediaId,
-      owner: userId,
-    });
-    if (!mediaFile) {
-      throw new Error("Media file not found");
+  ): Promise<{ data: Uint8Array; contentType: string } | { error: string }> {
+    // Get the media file metadata
+    const mediaFiles = await this.mediaFiles
+      .find({ _id: mediaId, owner: userId })
+      .toArray();
+
+    if (mediaFiles.length === 0) {
+      return { error: "Media file not found or access denied" } as any;
     }
 
-    // Read the actual file from disk and return it
-    const fileData = await Deno.readFile(mediaFile.filePath);
-    return new Blob([fileData], { type: `image/${mediaFile.mediaType}` });
+    const mediaFile = mediaFiles[0];
+
+    try {
+      // Try to get image from database first (faster, more reliable)
+      console.log(
+        `📷 Attempting to serve image from database for mediaId: ${mediaId}`,
+      );
+      const storedImage = await this.mediaStorage._getImage({
+        userId,
+        mediaId,
+      });
+
+      if (storedImage && !("error" in storedImage)) {
+        console.log(
+          `✅ Serving image from database (${storedImage.size} bytes)`,
+        );
+
+        // Convert base64 to binary
+        // Remove data URI prefix if present (e.g., "data:image/jpeg;base64,")
+        let base64Data = storedImage.imageData;
+        if (base64Data.startsWith("data:")) {
+          base64Data = base64Data.split(",")[1];
+        }
+
+        console.log(`🔢 Decoding base64 data (${base64Data.length} chars)`);
+        const binaryData = Uint8Array.from(
+          atob(base64Data),
+          (c) => c.charCodeAt(0),
+        );
+        console.log(`✅ Binary data created (${binaryData.length} bytes)`);
+
+        return {
+          data: binaryData,
+          contentType: storedImage.mimeType,
+        };
+      }
+
+      // Fallback: try to read from disk (for old files that weren't stored in DB)
+      console.log(`⚠️ Image not in database, trying disk...`);
+      const rawPath =
+        `./uploads/${userId}${mediaFile.filePath}/${mediaFile.filename}`;
+      const fullPath = rawPath.replace(/([^:]\/)\/+/g, "$1");
+
+      console.log(`📷 Serving image from disk: ${fullPath}`);
+      const fileData = await Deno.readFile(fullPath);
+
+      // Store it in database for next time
+      console.log(`💾 Caching image in database for future requests...`);
+      const base64Data = btoa(String.fromCharCode(...fileData));
+      const mimeType = `image/${mediaFile.mediaType}`;
+      await this.mediaStorage.storeImage({
+        userId,
+        mediaId,
+        imageData: `data:${mimeType};base64,${base64Data}`,
+        mimeType,
+      });
+
+      return {
+        data: fileData,
+        contentType: mimeType,
+      };
+    } catch (err) {
+      console.error(`❌ Error serving image for mediaId ${mediaId}:`, err);
+      return { error: `Failed to serve image` } as any;
+    }
   }
 }
