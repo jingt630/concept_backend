@@ -51,24 +51,30 @@ export default class TranslationConcept {
     targetLanguage: TargetLanguage;
     originalText: string;
     originalTextId: OriginalTextId;
-  }): Promise<{ translation: TransTextId; translatedText: string } | { error: string }> {
+  }): Promise<
+    { translation: TransTextId; translatedText: string } | { error: string }
+  > {
     try {
-      console.log(`🌐 Starting translation for text: "${originalText}" to ${targetLanguage}`);
+      console.log(
+        `🌐 Starting translation for text: "${originalText}" to ${targetLanguage}`,
+      );
 
       const transTextId = freshID() as TransTextId;
 
       // Language mapping for better AI prompts
       const languageNames: Record<string, string> = {
-        'en': 'English',
-        'es': 'Spanish',
-        'zh': 'Chinese',
-        'ja': 'Japanese'
+        "en": "English",
+        "es": "Spanish",
+        "zh": "Chinese",
+        "ja": "Japanese",
       };
 
-      const targetLanguageName = languageNames[targetLanguage] || targetLanguage;
+      const targetLanguageName = languageNames[targetLanguage] ||
+        targetLanguage;
 
       // Use GeminiLLM for translation with better prompt
-      const prompt = `You are a professional translator. Translate the following text to ${targetLanguageName}.
+      const prompt =
+        `You are a professional translator. Translate the following text to ${targetLanguageName}.
 
 Original text: "${originalText}"
 
@@ -95,7 +101,10 @@ Translation:`;
       await this.translations.insertOne(newTranslation);
       console.log(`✅ Translation stored in database: ${transTextId}`);
 
-      return { translation: transTextId, translatedText: translatedText.trim() };
+      return {
+        translation: transTextId,
+        translatedText: translatedText.trim(),
+      };
     } catch (error) {
       console.error("❌ Error creating translation:", error);
       return { error: (error as Error).message };
@@ -132,7 +141,7 @@ Translation:`;
     }
   }
 
-   /**
+  /**
    * deleteTranslation (userId: ID, translationId: TransTextId)
    *
    * **requires**: `translationId` exists.
@@ -147,7 +156,27 @@ Translation:`;
     translationId: TransTextId;
   }): Promise<Empty | { error: string }> {
     try {
-      console.log(`🗑️ Deleting translation: ${translationId}`);
+      console.log(`🗑️ DELETE TRANSLATION REQUEST`);
+      console.log(`   - Translation ID: ${translationId}`);
+      console.log(`   - User ID: ${userId}`);
+
+      // First, verify the translation exists
+      const existingTranslation = await this.translations.findOne({
+        _id: translationId,
+      });
+
+      if (!existingTranslation) {
+        console.error(`❌ Translation not found in database: ${translationId}`);
+        return { error: `Translation with ID ${translationId} not found.` };
+      }
+
+      console.log(`   - Found translation:`, {
+        originalTextId: existingTranslation.originalTextId,
+        targetLanguage: existingTranslation.targetLanguage,
+        translatedText: existingTranslation.translatedText,
+      });
+
+      // Delete from database
       const result = await this.translations.deleteOne({
         _id: translationId,
       });
@@ -164,7 +193,6 @@ Translation:`;
       return { error: (error as Error).message };
     }
   }
-
 
   /**
    * changeLanguage (translation: Translation, newTargetLang: String)
@@ -254,13 +282,21 @@ Translation:`;
     originalTextId: OriginalTextId;
   }): Promise<Translations[]> {
     try {
-      console.log(`🔍 Searching translations for originalTextId: ${originalTextId}`);
+      console.log(
+        `🔍 Searching translations for originalTextId: ${originalTextId}`,
+      );
       const cursor = this.translations.find({ originalTextId: originalTextId });
       const translations = await cursor.toArray();
-      console.log(`📊 Found ${translations.length} translations:`, translations);
+      console.log(
+        `📊 Found ${translations.length} translations:`,
+        translations,
+      );
       return translations;
     } catch (error) {
-      console.error("❌ Error getting translations by original text ID:", error);
+      console.error(
+        "❌ Error getting translations by original text ID:",
+        error,
+      );
       return [{ error: (error as Error).message } as any]; // Indicate error in the result array
     }
   }

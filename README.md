@@ -21,3 +21,9 @@ as the LikertSurvey example. [ConceptFolder](design\concepts)
 
 # Console Output
 [ConsoleOutput](TestOutputs.md)
+
+# Changes made in Assignment 4B
+- incorporate db access, uploading, and deleting to change states of user's data in the DB
+- Also re-edited the code to allow AI work smoothly in the concepts that require responses from AI
+- changed test.ts for the codes in the src folder to test the new codes
+- changed my API key because of security leakage
