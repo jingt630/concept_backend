@@ -1,92 +1,116 @@
-/**
- * LLM Integration for DayPlanner
- *
- * Handles the requestAssignmentsFromLLM functionality using Google's Gemini API.
- * The LLM prompt is hardwired with user preferences and doesn't take external hints.
- */
-import * as fs from 'node:fs';
-import { GoogleGenAI } from 'npm:@google/genai';
-/**
- * Configuration for API access
- */
-export interface Config {
-    apiKey: string;
-}
+// Copy this to: concept_backend/gemini-llm.ts
 
+import { GoogleGenerativeAI } from "npm:@google/generative-ai";
+
+/**
+ * Gemini LLM Wrapper
+ * Handles image-to-text extraction using Google's Gemini API
+ */
 export class GeminiLLM {
+  private genAI: GoogleGenerativeAI;
+  private model: any;
 
-    async executeLLM (prompt: string, imagePath?: string): Promise<string> {
-        try {
-            // Initialize Gemini AI
-            const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-            const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash-lite";
-            if (GEMINI_API_KEY === undefined) throw new Error("Missing GEMINI_API_KEY");
-
-            let config = {};
-            const configPath = Deno.env.get("GEMINI_CONFIG");
-            if (configPath) {
-                config = JSON.parse(Deno.readTextFileSync(configPath));
-            }
-            const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
-            console.log("🤖 Calling Gemini AI...");
-
-            // Build the parts array for the request
-            const parts: any[] = [{ text: prompt }];
-
-            if (imagePath) {
-                console.log("📷 Reading image from:", imagePath);
-                const imageData = await Deno.readFile(imagePath);
-                const base64Data = btoa(String.fromCharCode(...imageData));
-
-                parts.push({
-                    inlineData: {
-                        data: base64Data,
-                        mimeType: "image/png",
-                    },
-                });
-            }
-
-            // Execute the LLM with proper content structure
-            const result = await ai.models.generateContent({
-                model: GEMINI_MODEL,
-                contents: [{
-                    role: "user",
-                    parts: parts
-                }],
-                ...config,
-            });
-            // Get text from the result
-            // The result object directly has a text() method
-            let text: string | undefined;
-
-            try {
-                // Try to get text directly from result
-                text = await result.text;
-                if (typeof text === "undefined"){console.log("result text is undefined");}
-            } catch (e) {
-                // Fallback: try to access candidates array
-                if (result.candidates && result.candidates.length > 0) {
-                    const candidate = result.candidates[0];
-                    if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
-                        text = candidate.content.parts[0].text || "";
-                    } else {
-                        throw new Error("No text found in Gemini response candidates");
-                    }
-                } else {
-                    throw new Error("Gemini API returned no candidates");
-                }
-            }
-
-            if (!text || text.trim() === "") {
-                throw new Error("Gemini API returned empty text");
-            }
-
-            console.log("✅ Gemini response received");
-            return text;
-        } catch (error) {
-            console.error('❌ Error calling Gemini API:', (error as Error).message);
-            throw error;
-        }
+  constructor() {
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is not set");
     }
+    this.genAI = new GoogleGenerativeAI(apiKey);
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  }
+
+  /**
+   * Execute LLM with prompt and optional image
+   * @param prompt - The text prompt for the LLM
+   * @param imageInput - OPTIONAL: Either a file path OR a base64 data URI (for image tasks)
+   */
+  async executeLLM(prompt: string, imageInput?: string): Promise<string> {
+    try {
+      console.log("🤖 Calling Gemini AI...");
+
+      // Text-only request (for translation, etc.)
+      if (!imageInput) {
+        console.log("📝 Text-only request (no image)");
+
+        const result = await this.model.generateContent([prompt]);
+        const response = await result.response;
+        const text = response.text();
+
+        console.log("✅ Gemini API response received");
+        console.log(`   Response length: ${text.length} chars`);
+
+        return text;
+      }
+
+      // Image request (for extraction)
+      let imageData: string;
+      let mimeType: string = "image/jpeg"; // Default
+
+      // Check if input is a data URI (base64)
+      if (imageInput.startsWith("data:")) {
+        console.log("📊 Using base64 data directly (from database)");
+
+        // Extract mime type and base64 data
+        const matches = imageInput.match(/^data:([^;]+);base64,(.+)$/);
+        if (!matches) {
+          throw new Error("Invalid data URI format");
+        }
+
+        mimeType = matches[1];
+        imageData = matches[2];
+
+        // Normalize MIME type: Gemini doesn't accept "image/jpg", only "image/jpeg"
+        if (mimeType === "image/jpg") {
+          mimeType = "image/jpeg";
+          console.log(`   ✅ Normalized MIME type: image/jpg → image/jpeg`);
+        }
+
+        // Don't log the actual data - it's too long!
+        console.log(`   Mime type: ${mimeType}`);
+        console.log(`   Base64 length: ${imageData.length} chars`);
+
+      } else {
+        // It's a file path - read from disk
+        console.log(`📷 Reading image from file: ${imageInput}`);
+
+        const fileBytes = await Deno.readFile(imageInput);
+        imageData = btoa(String.fromCharCode(...fileBytes));
+
+        // Detect mime type from extension
+        if (imageInput.endsWith(".png")) {
+          mimeType = "image/png";
+        } else if (imageInput.endsWith(".jpg") || imageInput.endsWith(".jpeg")) {
+          mimeType = "image/jpeg";
+        } else if (imageInput.endsWith(".webp")) {
+          mimeType = "image/webp";
+        }
+
+        console.log(`   File size: ${fileBytes.length} bytes`);
+        console.log(`   Mime type: ${mimeType}`);
+      }
+
+      // Prepare image part for Gemini
+      const imagePart = {
+        inlineData: {
+          data: imageData,
+          mimeType: mimeType,
+        },
+      };
+
+      console.log("📤 Sending request to Gemini API...");
+
+      // Call Gemini API
+      const result = await this.model.generateContent([prompt, imagePart]);
+      const response = await result.response;
+      const text = response.text();
+
+      console.log("✅ Gemini API response received");
+      console.log(`   Response length: ${text.length} chars`);
+
+      return text;
+    } catch (error) {
+      console.error("❌ Error calling Gemini API:", (error as Error).message);
+      throw error;
+    }
+  }
 }

@@ -44,12 +44,14 @@ export default class TextExtractionConcept {
   extractionResults: Collection<ExtractionResults>;
   locations: Collection<Locations>;
   mediaFiles: Collection<any>; // Reference to MediaManagement collection
+  mediaStorage: Collection<any>; // Reference to MediaStorage collection
   private geminiLLM: GeminiLLM;
 
   constructor(private readonly db: Db) {
     this.extractionResults = this.db.collection(PREFIX + "extractionResults");
     this.locations = this.db.collection(PREFIX + "locations");
     this.mediaFiles = this.db.collection("MediaManagement.mediaFiles");
+    this.mediaStorage = this.db.collection("MediaStorage.storedImages");
     this.geminiLLM = new GeminiLLM();
   }
 
@@ -134,6 +136,77 @@ export default class TextExtractionConcept {
 
     return results;
   }
+/**
+ * Get image dimensions from base64 data by parsing image headers
+ */
+private getImageDimensionsFromBase64(base64Data: string, mimeType: string): { width: number; height: number } {
+  try {
+    const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+
+    const binaryString = atob(cleanBase64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    if (mimeType === 'image/png' || mimeType === 'image/PNG') {
+      return this.parsePNGDimensions(bytes);
+    } else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+      return this.parseJPEGDimensions(bytes);
+    } else if (mimeType === 'image/webp') {
+      return this.parseWebPDimensions(bytes);
+    }
+
+    console.warn(`⚠️ Unsupported image type: ${mimeType}, using defaults`);
+    return { width: 1920, height: 1080 };
+  } catch (error) {
+    console.error(`❌ Error parsing image dimensions:`, error);
+    return { width: 1920, height: 1080 };
+  }
+}
+
+private parsePNGDimensions(bytes: Uint8Array): { width: number; height: number } {
+  if (bytes.length < 24) {
+    throw new Error('Invalid PNG data');
+  }
+  const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+  const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+  return { width, height };
+}
+
+private parseJPEGDimensions(bytes: Uint8Array): { width: number; height: number } {
+  let offset = 2;
+  while (offset < bytes.length - 9) {
+    if (bytes[offset] !== 0xFF) {
+      offset++;
+      continue;
+    }
+    const marker = bytes[offset + 1];
+    if (marker >= 0xC0 && marker <= 0xC2) {
+      const height = (bytes[offset + 5] << 8) | bytes[offset + 6];
+      const width = (bytes[offset + 7] << 8) | bytes[offset + 8];
+      return { width, height };
+    }
+    const segmentLength = (bytes[offset + 2] << 8) | bytes[offset + 3];
+    offset += segmentLength + 2;
+  }
+  throw new Error('Could not find JPEG SOF marker');
+}
+
+private parseWebPDimensions(bytes: Uint8Array): { width: number; height: number } {
+  if (bytes.length < 30) {
+    throw new Error('Invalid WebP data');
+  }
+  if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x58) {
+    const width = (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16)) + 1;
+    const height = (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16)) + 1;
+    return { width, height };
+  }
+  console.warn('⚠️ VP8 format detected, using default dimensions');
+  return { width: 1920, height: 1080 };
+}
+
+// Then your existing getImagePath function continues...
 
   /**
    * Helper function to get full file path
@@ -179,15 +252,28 @@ export default class TextExtractionConcept {
         `🤖 Starting Gemini AI text extraction for: ${mediaFile.filename}`,
       );
 
-      // Get full image path
-      const imagePath = this.getImagePath(userId, mediaFile);
+      // Get image data from database
+      const storedImage = await this.mediaStorage.findOne({ mediaId: mediaId });
 
-      // Get image dimensions
-      const dimensions = await this.getImageDimensions(imagePath);
-      console.log(
-        `📐 Image dimensions: ${dimensions.width}x${dimensions.height}`,
-      );
+      if (!storedImage || !storedImage.imageData) {
+        console.error(`❌ Image data not found in database for mediaId: ${mediaId}`);
+        return { error: "Image data not found. Please re-upload the image." };
+      }
 
+      console.log(`✅ Image data retrieved from database (${storedImage.size} bytes)`);
+
+      // Prepare image data for AI (with data URI prefix if not already present)
+      const imageDataForAI = storedImage.imageData.startsWith('data:')
+        ? storedImage.imageData
+        : `data:${storedImage.mimeType};base64,${storedImage.imageData}`;
+
+      // Get image dimensions (using default since we can't easily get from base64)
+      console.log(`📏 Parsing image dimensions...`);
+const dimensions = this.getImageDimensionsFromBase64(
+  storedImage.imageData,
+  storedImage.mimeType
+);
+console.log(`📐 Actual dimensions: ${dimensions.width}×${dimensions.height}`);
       // Build the OCR prompt
       const ocrPrompt =
         `You are an OCR assistant. Read all visible text in the given image
@@ -219,8 +305,9 @@ An example response format:
 N: <text> (from: {x:A, y:B}, to: {x:C, y:D})
 Number of text blocks: N`;
 
-      // Call Gemini AI
-      const aiResponse = await this.geminiLLM.executeLLM(ocrPrompt, imagePath);
+      // Call Gemini AI with base64 image data
+      console.log(`📤 Sending image data to Gemini AI...`);
+      const aiResponse = await this.geminiLLM.executeLLM(ocrPrompt, imageDataForAI);
       console.log(`✅ Gemini extraction complete`);
 
       // Parse the response
@@ -267,6 +354,14 @@ Number of text blocks: N`;
       }
 
       console.log(`✅ Created ${extractionIds.length} extraction records`);
+
+      // Update the media file's updateDate
+      await this.mediaFiles.updateOne(
+        { _id: mediaId },
+        { $set: { updateDate: new Date() } }
+      );
+      console.log(`✅ Updated media file updateDate`);
+
       return { results: extractionIds };
     } catch (error) {
       console.error("❌ Error in extractTextFromMedia:", error);
@@ -449,6 +544,12 @@ Translation:`;
       { $set: { fromCoord: fromCoord, toCoord: toCoord } },
     );
 
+    // Update the media file's updateDate
+    await this.mediaFiles.updateOne(
+      { _id: extraction.imagePath },
+      { $set: { updateDate: new Date() } }
+    );
+
     return {};
   }
 
@@ -515,6 +616,12 @@ Translation:`;
       position: newLocationId,
       textId: textId,
     });
+
+    // Update the media file's updateDate
+    await this.mediaFiles.updateOne(
+      { _id: mediaId },
+      { $set: { updateDate: new Date() } }
+    );
 
     return { result: newExtractionResultId };
   }
