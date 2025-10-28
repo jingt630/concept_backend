@@ -108,7 +108,22 @@ export default class RenderingConcept {
 
       console.log(`✅ Validated ${validElements.length}/${contentToRender.textElements.length} elements`);
 
-      // 4. Create output version with instructions
+      // 4. Delete any existing render output for this image (keep only latest)
+      const existingOutputs = await this.outputVersions.find({
+        imagePath: imagePath,
+        owner: userId
+      }).toArray();
+
+      if (existingOutputs.length > 0) {
+        console.log(`🗑️ Deleting ${existingOutputs.length} old render output(s)`);
+        await this.outputVersions.deleteMany({
+          imagePath: imagePath,
+          owner: userId
+        });
+        console.log('✅ Old outputs deleted');
+      }
+
+      // 5. Create output version with instructions
       const newRenderedContent: RenderedContent = {
         textElements: validElements.map((te) => ({
           ...te,
@@ -125,7 +140,7 @@ export default class RenderingConcept {
         owner: userId,
       };
 
-      // 5. Save to database
+      // 6. Save to database
       await this.outputVersions.insertOne(newOutputVersion);
       console.log('✅ Output saved (instructions for frontend rendering)');
       console.log(`   Output ID: ${newOutputVersion._id}`);

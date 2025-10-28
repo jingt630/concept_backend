@@ -25,10 +25,12 @@ interface Translations {
 
 export default class TranslationConcept {
   translations: Collection<Translations>;
+  mediaFiles: Collection<any>; // Reference to MediaManagement collection
   private readonly geminiLLM: GeminiLLM;
 
   constructor(private readonly db: Db) {
     this.translations = this.db.collection(PREFIX + "translations");
+    this.mediaFiles = this.db.collection("MediaManagement.mediaFiles");
     this.geminiLLM = new GeminiLLM();
   }
 
@@ -100,6 +102,13 @@ Translation:`;
 
       await this.translations.insertOne(newTranslation);
       console.log(`✅ Translation stored in database: ${transTextId}`);
+
+      // Update the media file's updateDate
+      await this.mediaFiles.updateOne(
+        { _id: imagePath },
+        { $set: { updateDate: new Date() } },
+      );
+      console.log(`✅ Updated media file updateDate`);
 
       return {
         translation: transTextId,
@@ -182,11 +191,27 @@ Translation:`;
       });
 
       if (result.deletedCount === 0) {
-        console.error(`❌ Translation not found: ${translationId}`);
-        return { error: `Translation with ID ${translationId} not found.` };
+        console.error(`❌ Database deletion failed for: ${translationId}`);
+        return { error: `Failed to delete translation from database.` };
       }
 
-      console.log(`✅ Translation deleted successfully: ${translationId}`);
+      // Verify deletion
+      const verifyDeleted = await this.translations.findOne({
+        _id: translationId,
+      });
+
+      if (verifyDeleted) {
+        console.error(
+          `❌ VERIFICATION FAILED: Translation still exists after deletion!`,
+        );
+        return { error: `Translation deletion verification failed.` };
+      }
+
+      console.log(`✅ TRANSLATION DELETED FROM DATABASE SUCCESSFULLY`);
+      console.log(`   - Translation ID: ${translationId}`);
+      console.log(`   - Deleted count: ${result.deletedCount}`);
+      console.log(`   - Verification: Confirmed removed from database`);
+
       return {};
     } catch (error) {
       console.error("❌ Error deleting translation:", error);

@@ -10,7 +10,7 @@
         "path": "npm:path@^0.12.7"
     },
     "tasks": {
-        "concepts": "deno run --allow-net --allow-read --allow-sys --allow-env src/concept_server.ts --port 8000 --baseUrl /api"
+        "concepts": "deno run --allow-net --allow-read --allow-write --allow-sys --allow-env src/concept_server.ts --port 8000 --baseUrl /api"
     }
 
 }

@@ -27,3 +27,6 @@ as the LikertSurvey example. [ConceptFolder](design\concepts)
 - Also re-edited the code to allow AI work smoothly in the concepts that require responses from AI
 - changed test.ts for the codes in the src folder to test the new codes
 - changed my API key because of security leakage
+
+# Important updates different from checkin 4B
+[@DesignDocChanges](DESIGN_DOC_RENDERING_IMPROVEMENTS.md)
