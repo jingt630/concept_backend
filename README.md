@@ -32,11 +32,10 @@ as the LikertSurvey example. [ConceptFolder](design\concepts)
 [@DesignDocChanges](DESIGN_DOC_RENDERING_IMPROVEMENTS.md)
 
 # Design Document for 4C
-
+[@DesignDoc4C](DESIGN_DOCUMENT_4C.md)
 # 4C Demo video Link
 
 # Document of trace of incoming actions
 
 # Reflection Document
-
-
+[@ReflectionDoc](REFLECTION_DOCUMENT.md)
