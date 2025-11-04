@@ -41,6 +41,28 @@ export const inclusions: Record<string, string> = {
   "/api/User/_getUserEmail":
     "query - client responsible for only requesting own email (TODO: add session auth)",
   "/api/User/_getAllUsers": "public user listing",
+
+  // TextExtraction - Utility methods (helper functions with no data access)
+  "/api/TextExtraction/getImageDimensions":
+    "utility function for calculating image dimensions",
+  "/api/TextExtraction/parseNumberedTextList":
+    "utility function for parsing text lists",
+  "/api/TextExtraction/parseCoordinatesList":
+    "utility function for parsing coordinates",
+  "/api/TextExtraction/getImageDimensionsFromBase64":
+    "utility function for base64 image dimensions",
+  "/api/TextExtraction/parsePNGDimensions": "utility function for PNG parsing",
+  "/api/TextExtraction/parseJPEGDimensions":
+    "utility function for JPEG parsing",
+  "/api/TextExtraction/parseWebPDimensions":
+    "utility function for WebP parsing",
+  "/api/TextExtraction/getImagePath": "utility function for path construction",
+
+  // TextExtraction - Queries (client-side responsibility for now)
+  "/api/TextExtraction/_getExtractionResultsForImage":
+    "query - client responsible for only requesting own extractions (TODO: add session auth)",
+  "/api/TextExtraction/_getLocationForExtraction":
+    "query - client responsible for only requesting own locations (TODO: add session auth)",
 };
 
 /**
@@ -61,4 +83,12 @@ export const exclusions: Array<string> = [
   // User - Actions that require authentication (handled via Requesting syncs)
   "/api/User/delete", // User can only delete their own account
   "/api/User/changeProfilePic", // User can only change their own profile picture
+
+  // TextExtraction - Core actions that require authentication (handled via Requesting syncs)
+  "/api/TextExtraction/extractTextFromMedia", // Only owner can extract text from their images
+  "/api/TextExtraction/editExtractText", // Only owner can edit their extracted text
+  "/api/TextExtraction/syncTranslationsForText", // Only owner can sync their translations
+  "/api/TextExtraction/editLocation", // Only owner can edit text locations
+  "/api/TextExtraction/addExtractionTxt", // Only owner can add extractions to their images
+  "/api/TextExtraction/deleteExtraction", // Only owner can delete their extractions
 ];
