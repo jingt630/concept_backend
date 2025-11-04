@@ -37,31 +37,3 @@ export const DeleteUserResponse: Sync = ({ request }) => ({
   ),
   then: actions([Requesting.respond, { request, success: true }]),
 });
-
-/**
- * Change Profile Picture Request
- * When a user requests to change their profile picture,
- * ensure they can only change their own
- */
-export const ChangeProfilePicRequest: Sync = (
-  { request, user, newProfilePic },
-) => ({
-  when: actions([
-    Requesting.request,
-    { path: "/User/changeProfilePic", user, newProfilePic },
-    { request },
-  ]),
-  then: actions([User.changeProfilePic, { user, newProfilePic }]),
-});
-
-/**
- * Change Profile Picture Response
- * After the profile picture is changed, send the response back
- */
-export const ChangeProfilePicResponse: Sync = ({ request }) => ({
-  when: actions(
-    [Requesting.request, { path: "/User/changeProfilePic" }, { request }],
-    [User.changeProfilePic, {}],
-  ),
-  then: actions([Requesting.respond, { request, success: true }]),
-});
