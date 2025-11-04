@@ -63,6 +63,12 @@ export const inclusions: Record<string, string> = {
     "query - client responsible for only requesting own extractions (TODO: add session auth)",
   "/api/TextExtraction/_getLocationForExtraction":
     "query - client responsible for only requesting own locations (TODO: add session auth)",
+
+  // Translation - Queries (client-side responsibility for now)
+  "/api/Translation/_getTranslationById":
+    "query - client responsible for only requesting own translations (TODO: add session auth)",
+  "/api/Translation/_getTranslationsByOriginalTextId":
+    "query - client responsible for only requesting own translations (TODO: add session auth)",
 };
 
 /**
@@ -91,4 +97,10 @@ export const exclusions: Array<string> = [
   "/api/TextExtraction/editLocation", // Only owner can edit text locations
   "/api/TextExtraction/addExtractionTxt", // Only owner can add extractions to their images
   "/api/TextExtraction/deleteExtraction", // Only owner can delete their extractions
+
+  // Translation - Core actions that require authentication (handled via Requesting syncs)
+  "/api/Translation/createTranslation", // Only owner can create translations for their content
+  "/api/Translation/editTranslation", // Only owner can edit their translations
+  "/api/Translation/deleteTranslation", // Only owner can delete their translations
+  "/api/Translation/changeLanguage", // Only owner can change language of their translations
 ];
