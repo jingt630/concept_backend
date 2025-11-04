@@ -36,7 +36,6 @@ export const inclusions: Record<string, string> = {
   "/api/User/create": "anyone can register a new account",
   "/api/User/_getUserByEmail": "needed for login/authentication verification",
   "/api/User/_getUserById": "public profile viewing",
-  "/api/User/_getUserProfilePic": "public profile picture viewing",
   "/api/User/_getUserUsername": "public username viewing",
   "/api/User/_getUserEmail":
     "query - client responsible for only requesting own email (TODO: add session auth)",
@@ -108,7 +107,6 @@ export const exclusions: Array<string> = [
 
   // User - Actions that require authentication (handled via Requesting syncs)
   "/api/User/delete", // User can only delete their own account
-  "/api/User/changeProfilePic", // User can only change their own profile picture
 
   // TextExtraction - Core actions that require authentication (handled via Requesting syncs)
   "/api/TextExtraction/extractTextFromMedia", // Only owner can extract text from their images
