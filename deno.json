@@ -7,10 +7,25 @@
         "file": "npm:file@^0.2.2",
         "fs": "npm:fs@^0.0.1-security",
         "image-size": "npm:image-size@^2.0.2",
-        "path": "npm:path@^0.12.7"
+        "path": "npm:path@^0.12.7",
+        "@engine": "./src/engine/mod.ts",
+        "@syncs": "./src/syncs/syncs.ts",
+        "@concepts": "./src/concepts/concepts.ts",
+        "@test-concepts": "./src/concepts/test_concepts.ts",
     },
     "tasks": {
-        "concepts": "deno run --allow-net --allow-read --allow-write --allow-sys --allow-env src/concept_server.ts --port 8000 --baseUrl /api"
+        "start": "deno run --allow-net --allow-write --allow-read --allow-sys --allow-env src/main.ts",
+        "concepts": "deno run --allow-net --allow-read --allow-sys --allow-env src/concept_server.ts --port 8000 --baseUrl /api",
+        "import": "deno run --allow-read --allow-write --allow-env src/utils/generate_imports.ts",
+        "build": "deno run import"
+    },
+    "lint": {
+        "rules": {
+            "exclude": [
+                "no-import-prefix",
+                "no-unversioned-import"
+            ]
+        }
     }
 
 }
