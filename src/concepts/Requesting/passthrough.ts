@@ -79,6 +79,16 @@ export const inclusions: Record<string, string> = {
     "query - client responsible for only listing own folders (TODO: add session auth)",
   "/api/MediaManagement/_serveImage":
     "query - serves images with binary response (client responsible for own media, TODO: add session auth)",
+
+  // Rendering - Queries (client-side responsibility for now)
+  "/api/Rendering/_getOutputVersionById":
+    "query - client responsible for only requesting own outputs (TODO: add session auth)",
+  "/api/Rendering/_getAllOutputVersions":
+    "query - client responsible for only listing own outputs (TODO: add session auth)",
+  "/api/Rendering/_getOutputsByMediaId":
+    "query - client responsible for only requesting own media outputs (TODO: add session auth)",
+  "/api/Rendering/_serveRenderedImage":
+    "query - serves rendered images with binary response (client responsible for own renders, TODO: add session auth)",
 };
 
 /**
@@ -121,4 +131,8 @@ export const exclusions: Array<string> = [
   "/api/MediaManagement/createFolder", // Associate folders with authenticated user
   "/api/MediaManagement/updateContext", // Only owner can update their file context
   "/api/MediaManagement/addTranslatedText", // Only owner can add translations to their files
+
+  // Rendering - Core actions that require authentication (handled via Requesting syncs)
+  "/api/Rendering/render", // Only owner can render their content
+  "/api/Rendering/export", // Only owner can export their renders
 ];
