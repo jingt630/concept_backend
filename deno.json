@@ -5,12 +5,19 @@
         "@test-concepts": "./src/concepts/test_concepts.ts",
         "@google/genai": "npm:@google/genai@^1.25.0",
         "@utils/": "./src/utils/",
+        "express": "npm:express@^5.1.0",
+        "file": "npm:file@^0.2.2",
+        "fs": "npm:fs@^0.0.1-security",
+        "image-size": "npm:image-size@^2.0.2",
+        "path": "npm:path@^0.12.7",
         "@engine": "./src/engine/mod.ts",
-        "@syncs": "./src/syncs/syncs.ts"
+        "@syncs": "./src/syncs/syncs.ts",
+        "@concepts": "./src/concepts/concepts.ts",
+        "@test-concepts": "./src/concepts/test_concepts.ts",
     },
     "tasks": {
         "start": "deno run --allow-net --allow-write --allow-read --allow-sys --allow-env src/main.ts",
-        "concepts": "deno run --allow-net --allow-read --allow-write --allow-sys --allow-env src/concept_server.ts --port 8000 --baseUrl /api",
+        "concepts": "deno run --allow-net --allow-read --allow-sys --allow-env src/concept_server.ts --port 8000 --baseUrl /api",
         "import": "deno run --allow-read --allow-write --allow-env src/utils/generate_imports.ts",
         "build": "deno run import"
     },
