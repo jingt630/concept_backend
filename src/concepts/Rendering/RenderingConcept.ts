@@ -68,59 +68,65 @@ export default class RenderingConcept {
     contentToRender: RenderedContent;
   }): Promise<{ output: OutputVersion } | { error: string }> {
     try {
-      console.log('🎨 ========== STORING RENDERING INSTRUCTIONS ==========');
-      console.log('   - User ID:', userId);
-      console.log('   - Media ID:', imagePath);
-      console.log('   - Text elements:', contentToRender.textElements.length);
+      console.log("🎨 ========== STORING RENDERING INSTRUCTIONS ==========");
+      console.log("   - User ID:", userId);
+      console.log("   - Media ID:", imagePath);
+      console.log("   - Text elements:", contentToRender.textElements.length);
 
       // 1. Verify media file
       const mediaFile = await this.mediaFiles.findOne({
         _id: imagePath,
-        owner: userId
+        owner: userId,
       });
 
       if (!mediaFile) {
-        return { error: 'Media file not found or access denied' };
+        return { error: "Media file not found or access denied" };
       }
 
-      console.log('✅ Media file verified');
+      console.log("✅ Media file verified");
 
       // 2. Get original image
       const imageDoc = await this.mediaStorage.findOne({
-        mediaId: imagePath
+        mediaId: imagePath,
       });
 
       if (!imageDoc || !imageDoc.imageData) {
-        return { error: 'Image not found in storage' };
+        return { error: "Image not found in storage" };
       }
 
-      console.log('✅ Image found in storage');
+      console.log("✅ Image found in storage");
 
       // 3. Validate text elements
-      const validElements = contentToRender.textElements.filter(element => {
+      const validElements = contentToRender.textElements.filter((element) => {
         const pos = element.position;
-        if (!pos || pos.x < 0 || pos.y < 0 || pos.x2 <= pos.x || pos.y2 <= pos.y) {
+        if (
+          !pos || pos.x < 0 || pos.y < 0 || pos.x2 <= pos.x || pos.y2 <= pos.y
+        ) {
           console.warn(`⚠️ Skipping invalid element: ${element.text}`);
           return false;
         }
         return true;
       });
 
-      console.log(`✅ Validated ${validElements.length}/${contentToRender.textElements.length} elements`);
+      console.log(
+        `✅ Validated ${validElements.length}/${contentToRender.textElements.length} elements`,
+      );
 
       // 4. Delete any existing render output for this image (keep only latest)
       const existingOutputs = await this.outputVersions.find({
         imagePath: imagePath,
-        owner: userId
+        owner: userId,
       }).toArray();
 
       if (existingOutputs.length > 0) {
-        console.log(`🗑️ Deleting ${existingOutputs.length} old render output(s)`);
+        console.log(
+          `🗑️ Deleting ${existingOutputs.length} old render output(s)`,
+        );
         await this.outputVersions.deleteMany({
           imagePath: imagePath,
-          owner: userId
+          owner: userId,
         });
-        console.log('✅ Old outputs deleted');
+        console.log("✅ Old outputs deleted");
       }
 
       // 5. Create output version with instructions
@@ -142,67 +148,91 @@ export default class RenderingConcept {
 
       // 6. Save to database
       await this.outputVersions.insertOne(newOutputVersion);
-      console.log('✅ Output saved (instructions for frontend rendering)');
+      console.log("✅ Output saved (instructions for frontend rendering)");
       console.log(`   Output ID: ${newOutputVersion._id}`);
-      console.log('========================================');
+      console.log("========================================");
 
       return { output: newOutputVersion };
     } catch (error) {
-      console.error('❌ Error:', error);
+      console.error("❌ Error:", error);
       return { error: (error as Error).message };
     }
   }
 
-  async export({ outputId, destination, type }: { outputId: OutputVersionID; destination: string; type: string }): Promise<{ file: ExportedFile } | { error: string }> {
+  async export(
+    { outputId, destination, type }: {
+      outputId: OutputVersionID;
+      destination: string;
+      type: string;
+    },
+  ): Promise<{ file: ExportedFile } | { error: string }> {
     try {
       const output = await this.outputVersions.findOne({ _id: outputId });
-      if (!output) return { error: 'Output not found' };
+      if (!output) return { error: "Output not found" };
 
       return {
         file: {
           name: `rendered_${outputId}.${type}`,
-          content: output.renderedImageData || '',
+          content: output.renderedImageData || "",
           destination: `${destination}/rendered_${outputId}.${type}`,
-        }
+        },
       };
     } catch (error) {
       return { error: (error as Error).message };
     }
   }
 
-  async _getOutputVersionById({ userId, outputId }: { userId: ID; outputId: OutputVersionID }): Promise<OutputVersion[]> {
-    const output = await this.outputVersions.findOne({ _id: outputId, owner: userId });
+  async _getOutputVersionById(
+    { userId, outputId }: { userId: ID; outputId: OutputVersionID },
+  ): Promise<OutputVersion[]> {
+    const output = await this.outputVersions.findOne({
+      _id: outputId,
+      owner: userId,
+    });
     return output ? [output] : [];
   }
 
-  async _getAllOutputVersions({ userId }: { userId: ID }): Promise<OutputVersion[]> {
+  async _getAllOutputVersions(
+    { userId }: { userId: ID },
+  ): Promise<OutputVersion[]> {
     return await this.outputVersions.find({ owner: userId }).toArray();
   }
 
-  async _getOutputsByMediaId({ userId, mediaId }: { userId: ID; mediaId: ID }): Promise<OutputVersion[]> {
-    return await this.outputVersions.find({ imagePath: mediaId, owner: userId }).toArray();
+  async _getOutputsByMediaId(
+    { userId, mediaId }: { userId: ID; mediaId: ID },
+  ): Promise<OutputVersion[]> {
+    return await this.outputVersions.find({ imagePath: mediaId, owner: userId })
+      .toArray();
   }
 
-  async _serveRenderedImage({ userId, outputId }: { userId: ID; outputId: OutputVersionID }): Promise<{ data: Uint8Array; contentType: string } | { error: string }> {
+  async _serveRenderedImage(
+    { userId, outputId }: { userId: ID; outputId: OutputVersionID },
+  ): Promise<{ data: Uint8Array; contentType: string } | { error: string }> {
     try {
-      const output = await this.outputVersions.findOne({ _id: outputId, owner: userId });
+      const output = await this.outputVersions.findOne({
+        _id: outputId,
+        owner: userId,
+      });
 
       if (!output || !output.renderedImageData) {
-        return { error: 'Rendered image not found' };
+        return { error: "Rendered image not found" };
       }
 
       // Return original image + rendering instructions
       // Frontend will handle the actual rendering
       let base64Data = output.renderedImageData;
-      if (base64Data.startsWith('data:')) {
-        base64Data = base64Data.split(',')[1];
+      if (base64Data.startsWith("data:")) {
+        base64Data = base64Data.split(",")[1];
       }
 
-      const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+      const imageBuffer = Uint8Array.from(
+        atob(base64Data),
+        (c) => c.charCodeAt(0),
+      );
 
       return {
         data: imageBuffer,
-        contentType: 'image/png',
+        contentType: "image/png",
       };
     } catch (error) {
       return { error: (error as Error).message };

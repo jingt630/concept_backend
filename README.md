@@ -28,5 +28,14 @@ as the LikertSurvey example. [ConceptFolder](design\concepts)
 - changed test.ts for the codes in the src folder to test the new codes
 - changed my API key because of security leakage
 
-# Important updates different from checkin 4B
+# Important updates different from checkin 4B in final 4B
 [@DesignDocChanges](DESIGN_DOC_RENDERING_IMPROVEMENTS.md)
+
+# Design Document for 4C
+[@DesignDoc4C](DESIGN_DOCUMENT_4C.md)
+# 4C Demo video Link
+
+# Document of trace of incoming actions
+
+# Reflection Document
+[@ReflectionDoc](REFLECTION_DOCUMENT.md)

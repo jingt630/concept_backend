@@ -137,42 +137,6 @@ export default class UserConcept {
     return {};
   }
 
-  /**
-   * authenticate(email: String, password: String): {user: User, authenticated: Boolean}
-   *
-   * **requires**: none (returns authenticated=false if credentials invalid)
-   *
-   * **effects**:
-   *   * Checks if email and password match a user in the database
-   *   * Returns user ID and authentication status
-   */
-  async authenticate({
-    email,
-    password,
-  }: {
-    email: string;
-    password: string;
-  }): Promise<{ user?: User; authenticated: boolean; error?: string }> {
-    const userDoc = await this.users.findOne({ email });
-
-    if (!userDoc) {
-      console.log(`❌ Authentication failed: email ${email} not found`);
-      return { authenticated: false, error: "Invalid email or password." };
-    }
-
-    // TODO: In production, use proper password hashing (bcrypt, argon2)
-    // For now, direct comparison (insecure - fix later!)
-    if (userDoc.password !== password) {
-      console.log(`❌ Authentication failed: incorrect password for ${email}`);
-      return { authenticated: false, error: "Invalid email or password." };
-    }
-
-    console.log(
-      `✅ Authentication successful for user ${userDoc.username} (${email})`,
-    );
-    return { user: userDoc._id, authenticated: true };
-  }
-
   // --- Queries ---
 
   /**
