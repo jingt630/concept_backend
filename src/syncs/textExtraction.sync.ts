@@ -27,12 +27,14 @@ export const ExtractTextFromMediaRequest: Sync = (
  * Extract Text From Media Response
  * After text extraction is complete, send the results back
  */
-export const ExtractTextFromMediaResponse: Sync = ({ request, results }) => ({
+export const ExtractTextFromMediaResponse: Sync = (
+  { request, userId, mediaId, results },
+) => ({
   when: actions(
     [Requesting.request, { path: "/TextExtraction/extractTextFromMedia" }, {
       request,
     }],
-    [TextExtraction.extractTextFromMedia, {}, { results }],
+    [TextExtraction.extractTextFromMedia, { userId, mediaId }, { results }],
   ),
   then: actions([Requesting.respond, { request, results }]),
 });
@@ -61,12 +63,14 @@ export const EditExtractTextRequest: Sync = (
  * Edit Extract Text Response
  * After editing extracted text, send confirmation back
  */
-export const EditExtractTextResponse: Sync = ({ request }) => ({
+export const EditExtractTextResponse: Sync = (
+  { request, userId, extractionId, newText },
+) => ({
   when: actions(
     [Requesting.request, { path: "/TextExtraction/editExtractText" }, {
       request,
     }],
-    [TextExtraction.editExtractText, {}],
+    [TextExtraction.editExtractText, { userId, extractionId, newText }, {}],
   ),
   then: actions([Requesting.respond, { request, success: true }]),
 });
@@ -102,10 +106,16 @@ export const EditLocationRequest: Sync = (
  * Edit Location Response
  * After editing location, send confirmation back
  */
-export const EditLocationResponse: Sync = ({ request }) => ({
+export const EditLocationResponse: Sync = (
+  { request, userId, extractionId, fromCoord, toCoord },
+) => ({
   when: actions(
     [Requesting.request, { path: "/TextExtraction/editLocation" }, { request }],
-    [TextExtraction.editLocation, {}],
+    [
+      TextExtraction.editLocation,
+      { userId, extractionId, fromCoord, toCoord },
+      {},
+    ],
   ),
   then: actions([Requesting.respond, { request, success: true }]),
 });
@@ -141,12 +151,16 @@ export const AddExtractionTxtRequest: Sync = (
  * Add Extraction Text Response
  * After adding a new extraction, send the result back
  */
-export const AddExtractionTxtResponse: Sync = ({ request, result }) => ({
+export const AddExtractionTxtResponse: Sync = (
+  { request, userId, mediaId, text, location, result },
+) => ({
   when: actions(
     [Requesting.request, { path: "/TextExtraction/addExtractionTxt" }, {
       request,
     }],
-    [TextExtraction.addExtractionTxt, {}, { result }],
+    [TextExtraction.addExtractionTxt, { userId, mediaId, text, location }, {
+      result,
+    }],
   ),
   then: actions([Requesting.respond, { request, result }]),
 });
@@ -171,12 +185,14 @@ export const DeleteExtractionRequest: Sync = (
  * Delete Extraction Response
  * After deleting extraction, send confirmation back
  */
-export const DeleteExtractionResponse: Sync = ({ request }) => ({
+export const DeleteExtractionResponse: Sync = (
+  { request, userId, extractionId },
+) => ({
   when: actions(
     [Requesting.request, { path: "/TextExtraction/deleteExtraction" }, {
       request,
     }],
-    [TextExtraction.deleteExtraction, {}],
+    [TextExtraction.deleteExtraction, { userId, extractionId }, {}],
   ),
   then: actions([Requesting.respond, { request, success: true }]),
 });
