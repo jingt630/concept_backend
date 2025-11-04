@@ -34,8 +34,9 @@ as the LikertSurvey example. [ConceptFolder](design\concepts)
 # Design Document for 4C
 [@DesignDoc4C](DESIGN_DOCUMENT_4C.md)
 # 4C Demo video Link
-
+[@4CDemoVideoYoutubeLink](https://youtu.be/yNTiPIy347o)
 # Document of trace of incoming actions
-
+[@FrontEndLog](FrontEndLog.md)
+[@BackEndLog](BackEndLog.md)
 # Reflection Document
 [@ReflectionDoc](REFLECTION_DOCUMENT.md)
