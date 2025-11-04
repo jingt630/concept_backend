@@ -69,6 +69,16 @@ export const inclusions: Record<string, string> = {
     "query - client responsible for only requesting own translations (TODO: add session auth)",
   "/api/Translation/_getTranslationsByOriginalTextId":
     "query - client responsible for only requesting own translations (TODO: add session auth)",
+
+  // MediaManagement - Queries (client-side responsibility for now)
+  "/api/MediaManagement/_getMediaFile":
+    "query - client responsible for only requesting own media (TODO: add session auth)",
+  "/api/MediaManagement/_listMediaFiles":
+    "query - client responsible for only listing own media (TODO: add session auth)",
+  "/api/MediaManagement/_listFolders":
+    "query - client responsible for only listing own folders (TODO: add session auth)",
+  "/api/MediaManagement/_serveImage":
+    "query - serves images with binary response (client responsible for own media, TODO: add session auth)",
 };
 
 /**
@@ -103,4 +113,12 @@ export const exclusions: Array<string> = [
   "/api/Translation/editTranslation", // Only owner can edit their translations
   "/api/Translation/deleteTranslation", // Only owner can delete their translations
   "/api/Translation/changeLanguage", // Only owner can change language of their translations
+
+  // MediaManagement - Core actions that require authentication (handled via Requesting syncs)
+  "/api/MediaManagement/upload", // Associate uploaded files with authenticated user
+  "/api/MediaManagement/delete", // Only owner can delete their files (cascade deletes extractions/translations)
+  "/api/MediaManagement/move", // Only owner can move their files
+  "/api/MediaManagement/createFolder", // Associate folders with authenticated user
+  "/api/MediaManagement/updateContext", // Only owner can update their file context
+  "/api/MediaManagement/addTranslatedText", // Only owner can add translations to their files
 ];
