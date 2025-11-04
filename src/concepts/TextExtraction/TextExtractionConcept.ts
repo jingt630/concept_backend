@@ -136,77 +136,91 @@ export default class TextExtractionConcept {
 
     return results;
   }
-/**
- * Get image dimensions from base64 data by parsing image headers
- */
-private getImageDimensionsFromBase64(base64Data: string, mimeType: string): { width: number; height: number } {
-  try {
-    const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+  /**
+   * Get image dimensions from base64 data by parsing image headers
+   */
+  private getImageDimensionsFromBase64(
+    base64Data: string,
+    mimeType: string,
+  ): { width: number; height: number } {
+    try {
+      const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
 
-    const binaryString = atob(cleanBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+      const binaryString = atob(cleanBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      if (mimeType === "image/png" || mimeType === "image/PNG") {
+        return this.parsePNGDimensions(bytes);
+      } else if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+        return this.parseJPEGDimensions(bytes);
+      } else if (mimeType === "image/webp") {
+        return this.parseWebPDimensions(bytes);
+      }
+
+      console.warn(`⚠️ Unsupported image type: ${mimeType}, using defaults`);
+      return { width: 1920, height: 1080 };
+    } catch (error) {
+      console.error(`❌ Error parsing image dimensions:`, error);
+      return { width: 1920, height: 1080 };
     }
+  }
 
-    if (mimeType === 'image/png' || mimeType === 'image/PNG') {
-      return this.parsePNGDimensions(bytes);
-    } else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
-      return this.parseJPEGDimensions(bytes);
-    } else if (mimeType === 'image/webp') {
-      return this.parseWebPDimensions(bytes);
+  private parsePNGDimensions(
+    bytes: Uint8Array,
+  ): { width: number; height: number } {
+    if (bytes.length < 24) {
+      throw new Error("Invalid PNG data");
     }
-
-    console.warn(`⚠️ Unsupported image type: ${mimeType}, using defaults`);
-    return { width: 1920, height: 1080 };
-  } catch (error) {
-    console.error(`❌ Error parsing image dimensions:`, error);
-    return { width: 1920, height: 1080 };
-  }
-}
-
-private parsePNGDimensions(bytes: Uint8Array): { width: number; height: number } {
-  if (bytes.length < 24) {
-    throw new Error('Invalid PNG data');
-  }
-  const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
-  const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
-  return { width, height };
-}
-
-private parseJPEGDimensions(bytes: Uint8Array): { width: number; height: number } {
-  let offset = 2;
-  while (offset < bytes.length - 9) {
-    if (bytes[offset] !== 0xFF) {
-      offset++;
-      continue;
-    }
-    const marker = bytes[offset + 1];
-    if (marker >= 0xC0 && marker <= 0xC2) {
-      const height = (bytes[offset + 5] << 8) | bytes[offset + 6];
-      const width = (bytes[offset + 7] << 8) | bytes[offset + 8];
-      return { width, height };
-    }
-    const segmentLength = (bytes[offset + 2] << 8) | bytes[offset + 3];
-    offset += segmentLength + 2;
-  }
-  throw new Error('Could not find JPEG SOF marker');
-}
-
-private parseWebPDimensions(bytes: Uint8Array): { width: number; height: number } {
-  if (bytes.length < 30) {
-    throw new Error('Invalid WebP data');
-  }
-  if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x58) {
-    const width = (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16)) + 1;
-    const height = (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16)) + 1;
+    const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) |
+      bytes[19];
+    const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) |
+      bytes[23];
     return { width, height };
   }
-  console.warn('⚠️ VP8 format detected, using default dimensions');
-  return { width: 1920, height: 1080 };
-}
 
-// Then your existing getImagePath function continues...
+  private parseJPEGDimensions(
+    bytes: Uint8Array,
+  ): { width: number; height: number } {
+    let offset = 2;
+    while (offset < bytes.length - 9) {
+      if (bytes[offset] !== 0xFF) {
+        offset++;
+        continue;
+      }
+      const marker = bytes[offset + 1];
+      if (marker >= 0xC0 && marker <= 0xC2) {
+        const height = (bytes[offset + 5] << 8) | bytes[offset + 6];
+        const width = (bytes[offset + 7] << 8) | bytes[offset + 8];
+        return { width, height };
+      }
+      const segmentLength = (bytes[offset + 2] << 8) | bytes[offset + 3];
+      offset += segmentLength + 2;
+    }
+    throw new Error("Could not find JPEG SOF marker");
+  }
+
+  private parseWebPDimensions(
+    bytes: Uint8Array,
+  ): { width: number; height: number } {
+    if (bytes.length < 30) {
+      throw new Error("Invalid WebP data");
+    }
+    if (
+      bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 &&
+      bytes[15] === 0x58
+    ) {
+      const width = (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16)) + 1;
+      const height = (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16)) + 1;
+      return { width, height };
+    }
+    console.warn("⚠️ VP8 format detected, using default dimensions");
+    return { width: 1920, height: 1080 };
+  }
+
+  // Then your existing getImagePath function continues...
 
   /**
    * Helper function to get full file path
@@ -256,24 +270,30 @@ private parseWebPDimensions(bytes: Uint8Array): { width: number; height: number 
       const storedImage = await this.mediaStorage.findOne({ mediaId: mediaId });
 
       if (!storedImage || !storedImage.imageData) {
-        console.error(`❌ Image data not found in database for mediaId: ${mediaId}`);
+        console.error(
+          `❌ Image data not found in database for mediaId: ${mediaId}`,
+        );
         return { error: "Image data not found. Please re-upload the image." };
       }
 
-      console.log(`✅ Image data retrieved from database (${storedImage.size} bytes)`);
+      console.log(
+        `✅ Image data retrieved from database (${storedImage.size} bytes)`,
+      );
 
       // Prepare image data for AI (with data URI prefix if not already present)
-      const imageDataForAI = storedImage.imageData.startsWith('data:')
+      const imageDataForAI = storedImage.imageData.startsWith("data:")
         ? storedImage.imageData
         : `data:${storedImage.mimeType};base64,${storedImage.imageData}`;
 
       // Get image dimensions (using default since we can't easily get from base64)
       console.log(`📏 Parsing image dimensions...`);
-const dimensions = this.getImageDimensionsFromBase64(
-  storedImage.imageData,
-  storedImage.mimeType
-);
-console.log(`📐 Actual dimensions: ${dimensions.width}×${dimensions.height}`);
+      const dimensions = this.getImageDimensionsFromBase64(
+        storedImage.imageData,
+        storedImage.mimeType,
+      );
+      console.log(
+        `📐 Actual dimensions: ${dimensions.width}×${dimensions.height}`,
+      );
       // Build the OCR prompt
       const ocrPrompt =
         `You are an OCR assistant. Read all visible text in the given image
@@ -307,7 +327,10 @@ Number of text blocks: N`;
 
       // Call Gemini AI with base64 image data
       console.log(`📤 Sending image data to Gemini AI...`);
-      const aiResponse = await this.geminiLLM.executeLLM(ocrPrompt, imageDataForAI);
+      const aiResponse = await this.geminiLLM.executeLLM(
+        ocrPrompt,
+        imageDataForAI,
+      );
       console.log(`✅ Gemini extraction complete`);
 
       // Parse the response
@@ -358,7 +381,7 @@ Number of text blocks: N`;
       // Update the media file's updateDate
       await this.mediaFiles.updateOne(
         { _id: mediaId },
-        { $set: { updateDate: new Date() } }
+        { $set: { updateDate: new Date() } },
       );
       console.log(`✅ Updated media file updateDate`);
 
@@ -418,7 +441,9 @@ Number of text blocks: N`;
 
     // AUTO-SYNC: Update all existing translations for this text
     if (extraction.textId) {
-      console.log(`🔄 Auto-syncing translations for textId: ${extraction.textId}`);
+      console.log(
+        `🔄 Auto-syncing translations for textId: ${extraction.textId}`,
+      );
       await this.syncTranslationsForText(extraction.textId, newText);
     }
 
@@ -431,17 +456,24 @@ Number of text blocks: N`;
    * @param textId - The textId of the extraction
    * @param newText - The new original text
    */
-  private async syncTranslationsForText(textId: string, newText: string): Promise<void> {
+  private async syncTranslationsForText(
+    textId: string,
+    newText: string,
+  ): Promise<void> {
     try {
-      const translationsCollection = this.db.collection("Translation.translations");
+      const translationsCollection = this.db.collection(
+        "Translation.translations",
+      );
 
       // Find all translations for this textId
       const translations = await translationsCollection.find({
-        originalTextId: textId
+        originalTextId: textId,
       }).toArray();
 
       if (translations.length === 0) {
-        console.log(`ℹ️ No translations found for textId: ${textId}, skipping sync`);
+        console.log(
+          `ℹ️ No translations found for textId: ${textId}, skipping sync`,
+        );
         return;
       }
 
@@ -449,19 +481,21 @@ Number of text blocks: N`;
 
       // Language mapping for better prompts
       const languageNames: Record<string, string> = {
-        'en': 'English',
-        'es': 'Spanish',
-        'zh': 'Chinese',
-        'ja': 'Japanese'
+        "en": "English",
+        "es": "Spanish",
+        "zh": "Chinese",
+        "ja": "Japanese",
       };
 
       // Re-translate for each existing translation
       for (const translation of translations) {
-        const targetLanguageName = languageNames[translation.targetLanguage] || translation.targetLanguage;
+        const targetLanguageName = languageNames[translation.targetLanguage] ||
+          translation.targetLanguage;
 
         console.log(`🌐 Re-translating to ${targetLanguageName}...`);
 
-        const prompt = `You are a professional translator. Translate the following text to ${targetLanguageName}.
+        const prompt =
+          `You are a professional translator. Translate the following text to ${targetLanguageName}.
 
 Original text: "${newText}"
 
@@ -479,12 +513,17 @@ Translation:`;
           // Update the translation
           await translationsCollection.updateOne(
             { _id: translation._id },
-            { $set: { translatedText: translatedText.trim() } }
+            { $set: { translatedText: translatedText.trim() } },
           );
 
-          console.log(`✅ Updated ${translation.targetLanguage} translation: "${translatedText.trim()}"`);
+          console.log(
+            `✅ Updated ${translation.targetLanguage} translation: "${translatedText.trim()}"`,
+          );
         } catch (error) {
-          console.error(`❌ Failed to re-translate to ${translation.targetLanguage}:`, error);
+          console.error(
+            `❌ Failed to re-translate to ${translation.targetLanguage}:`,
+            error,
+          );
           // Continue with other translations even if one fails
         }
       }
@@ -547,7 +586,7 @@ Translation:`;
     // Update the media file's updateDate
     await this.mediaFiles.updateOne(
       { _id: extraction.imagePath },
-      { $set: { updateDate: new Date() } }
+      { $set: { updateDate: new Date() } },
     );
 
     return {};
@@ -620,7 +659,7 @@ Translation:`;
     // Update the media file's updateDate
     await this.mediaFiles.updateOne(
       { _id: mediaId },
-      { $set: { updateDate: new Date() } }
+      { $set: { updateDate: new Date() } },
     );
 
     return { result: newExtractionResultId };

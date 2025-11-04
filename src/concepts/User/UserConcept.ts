@@ -62,11 +62,17 @@ export default class UserConcept {
     password: string;
     profilePic: Image;
     email: string;
-  }): Promise<{ user: User } | {error: string}> {
+  }): Promise<{ user: User } | { error: string }> {
     // Validate username and password format
     const usernamePasswordRegex = /^[a-zA-Z0-9_-]+$/;
-    if (!usernamePasswordRegex.test(username) || !usernamePasswordRegex.test(password)) {
-      return { error: "Username and password must consist solely of alphabets, numbers, underscores, and hyphens." };
+    if (
+      !usernamePasswordRegex.test(username) ||
+      !usernamePasswordRegex.test(password)
+    ) {
+      return {
+        error:
+          "Username and password must consist solely of alphabets, numbers, underscores, and hyphens.",
+      };
     }
 
     // Check if email is already in use
@@ -97,7 +103,7 @@ export default class UserConcept {
    * **effects**:
    *   * Removes the specified `User` entity and all associated data from the system.
    */
-  async delete({ user }: { user: User }): Promise<Empty | {error: string}> {
+  async delete({ user }: { user: User }): Promise<Empty | { error: string }> {
     const result = await this.users.deleteOne({ _id: user });
     if (result.deletedCount === 0) {
       return { error: "User not found." };
@@ -120,10 +126,10 @@ export default class UserConcept {
   }: {
     user: User;
     newProfilePic: Image;
-  }): Promise<Empty | {error: string}> {
+  }): Promise<Empty | { error: string }> {
     const result = await this.users.updateOne(
       { _id: user },
-      { $set: { profilePic: newProfilePic } }
+      { $set: { profilePic: newProfilePic } },
     );
     if (result.matchedCount === 0) {
       return { error: "User not found." };
@@ -140,8 +146,12 @@ export default class UserConcept {
    *
    * **effects**: Returns the identifier of the `User` with the given `email`.
    */
-  async _getUserByEmail({ email }: { email: string }): Promise<Array<{ user: User }>> {
-    const user = await this.users.findOne({ email }, { projection: { _id: 1 } });
+  async _getUserByEmail(
+    { email }: { email: string },
+  ): Promise<Array<{ user: User }>> {
+    const user = await this.users.findOne({ email }, {
+      projection: { _id: 1 },
+    });
     if (!user) {
       return [];
     }
@@ -155,8 +165,12 @@ export default class UserConcept {
    *
    * **effects**: Returns the identifier of the `User` with the given `userId`.
    */
-  async _getUserById({ userId }: { userId: User }): Promise<Array<{ user: User }>> {
-    const user = await this.users.findOne({ _id: userId }, { projection: { _id: 1 } });
+  async _getUserById(
+    { userId }: { userId: User },
+  ): Promise<Array<{ user: User }>> {
+    const user = await this.users.findOne({ _id: userId }, {
+      projection: { _id: 1 },
+    });
     if (!user) {
       return [];
     }
@@ -170,8 +184,12 @@ export default class UserConcept {
    *
    * **effects**: Returns the profile picture of the specified `User`.
    */
-  async _getUserProfilePic({ user }: { user: User }): Promise<Array<{ profilePic: Image }>> {
-    const userDoc = await this.users.findOne({ _id: user }, { projection: { profilePic: 1 } });
+  async _getUserProfilePic(
+    { user }: { user: User },
+  ): Promise<Array<{ profilePic: Image }>> {
+    const userDoc = await this.users.findOne({ _id: user }, {
+      projection: { profilePic: 1 },
+    });
     if (!userDoc) {
       return [];
     }
@@ -185,8 +203,12 @@ export default class UserConcept {
    *
    * **effects**: Returns the username of the specified `User`.
    */
-  async _getUserUsername({ user }: { user: User }): Promise<Array<{ username: string }>> {
-    const userDoc = await this.users.findOne({ _id: user }, { projection: { username: 1 } });
+  async _getUserUsername(
+    { user }: { user: User },
+  ): Promise<Array<{ username: string }>> {
+    const userDoc = await this.users.findOne({ _id: user }, {
+      projection: { username: 1 },
+    });
     if (!userDoc) {
       return [];
     }
@@ -200,8 +222,12 @@ export default class UserConcept {
    *
    * **effects**: Returns the email of the specified `User`.
    */
-  async _getUserEmail({ user }: { user: User }): Promise<Array<{ email: string }>> {
-    const userDoc = await this.users.findOne({ _id: user }, { projection: { email: 1 } });
+  async _getUserEmail(
+    { user }: { user: User },
+  ): Promise<Array<{ email: string }>> {
+    const userDoc = await this.users.findOne({ _id: user }, {
+      projection: { email: 1 },
+    });
     if (!userDoc) {
       return [];
     }
@@ -215,8 +241,16 @@ export default class UserConcept {
    *
    * **effects**: Returns a list of all users with their ID, username, and email.
    */
-  async _getAllUsers(): Promise<Array<{ user: User; username: string; email: string }>> {
-    const users = await this.users.find({}, { projection: { _id: 1, username: 1, email: 1 } }).toArray();
-    return users.map(u => ({ user: u._id, username: u.username, email: u.email }));
+  async _getAllUsers(): Promise<
+    Array<{ user: User; username: string; email: string }>
+  > {
+    const users = await this.users.find({}, {
+      projection: { _id: 1, username: 1, email: 1 },
+    }).toArray();
+    return users.map((u) => ({
+      user: u._id,
+      username: u.username,
+      email: u.email,
+    }));
   }
 }

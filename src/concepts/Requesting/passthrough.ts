@@ -25,12 +25,22 @@
  */
 
 export const inclusions: Record<string, string> = {
-  // Feel free to delete these example inclusions
+  // LikertSurvey - Example/Demo concept
   "/api/LikertSurvey/_getSurveyQuestions": "this is a public query",
   "/api/LikertSurvey/_getSurveyResponses": "responses are public",
   "/api/LikertSurvey/_getRespondentAnswers": "answers are visible",
   "/api/LikertSurvey/submitResponse": "allow anyone to submit response",
   "/api/LikertSurvey/updateResponse": "allow anyone to update their response",
+
+  // User - Public actions that don't require authentication
+  "/api/User/create": "anyone can register a new account",
+  "/api/User/_getUserByEmail": "needed for login/authentication verification",
+  "/api/User/_getUserById": "public profile viewing",
+  "/api/User/_getUserProfilePic": "public profile picture viewing",
+  "/api/User/_getUserUsername": "public username viewing",
+  "/api/User/_getUserEmail":
+    "query - client responsible for only requesting own email (TODO: add session auth)",
+  "/api/User/_getAllUsers": "public user listing",
 };
 
 /**
@@ -44,7 +54,11 @@ export const inclusions: Record<string, string> = {
  */
 
 export const exclusions: Array<string> = [
-  // Feel free to delete these example exclusions
+  // LikertSurvey - Example/Demo concept
   "/api/LikertSurvey/createSurvey",
   "/api/LikertSurvey/addQuestion",
+
+  // User - Actions that require authentication (handled via Requesting syncs)
+  "/api/User/delete", // User can only delete their own account
+  "/api/User/changeProfilePic", // User can only change their own profile picture
 ];

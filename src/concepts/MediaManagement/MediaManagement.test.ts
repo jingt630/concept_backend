@@ -1,6 +1,6 @@
 import { testDb } from "@utils/database.ts";
 import { assertEquals, assertExists } from "jsr:@std/assert";
-import MediaManagementConcept from "./MediaManagement.ts";
+import MediaManagementConcept from "./MediaManagementConcept.ts";
 import { ID } from "@utils/types.ts";
 
 // Helper function to create a mock user ID
@@ -96,7 +96,10 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
     assertEquals(createFolderResult.owner, mockUser);
 
     // Verify state change
-    const folders = await mediaManagement._listFolders({ userId: mockUser, filePath: "/documents" });
+    const folders = await mediaManagement._listFolders({
+      userId: mockUser,
+      filePath: "/documents",
+    });
     assertEquals(folders.length, 1);
     assertEquals(folders[0]._id, createFolderResult._id);
   });
@@ -104,7 +107,11 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
   await t.step("createFolder action: duplicate folder name", async () => {
     console.log("--- Testing createFolder: duplicate folder name ---");
     // First, create a folder
-    await mediaManagement.createFolder({ userId: mockUser, filePath: "/images", name: "nature" });
+    await mediaManagement.createFolder({
+      userId: mockUser,
+      filePath: "/images",
+      name: "nature",
+    });
 
     // Attempt to create another folder with the same name in the same path
     const duplicateFolderResult = await mediaManagement.createFolder({
@@ -406,7 +413,10 @@ Deno.test("MediaManagement Concept Tests", async (t) => {
       );
 
       // Verify the move
-      const movedFile = await mediaManagement._getMediaFile({ userId: mockUser, mediaId: uploadedFileId1 });
+      const movedFile = await mediaManagement._getMediaFile({
+        userId: mockUser,
+        mediaId: uploadedFileId1,
+      });
       assertEquals(movedFile.length, 1);
       assertEquals(movedFile[0].filePath, "/user_files/archive/photos");
       console.log("Move verified.");
